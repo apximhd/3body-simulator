@@ -3,27 +3,35 @@
 Entry point: 3-Body AB+C Simulator
 
 Cross-platform notes for parallel Statistic runs:
-  ProcessPoolExecutor uses the ``spawn`` start method.  The project root must
-  be on sys.path *before* any package imports so worker processes can import
-  ``core.batch``.  The ``if __name__ == "__main__"`` guard is required on
-  Windows (and recommended everywhere with spawn).
+  ProcessPoolExecutor uses the ``spawn`` start method on Windows (and often
+  elsewhere).  ``multiprocessing.freeze_support()`` is required for PyInstaller
+  builds on Windows; on macOS/Linux and when running from source it is a no-op.
+
+  Package imports that start the GUI must stay inside main() so worker
+  processes do not open a second application window.
 """
 
 import sys
+import multiprocessing
 from pathlib import Path
 
-# Project root on sys.path BEFORE package imports (needed for spawn workers)
-ROOT = Path(__file__).resolve().parent
+# Project root on sys.path before package imports (needed for spawn workers).
+# PyInstaller sets sys.frozen and extracts files to sys._MEIPASS.
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    ROOT = Path(sys._MEIPASS)
+else:
+    ROOT = Path(__file__).resolve().parent
+
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
-from ui.main_window import MainWindow
 
+def main() -> None:
+    """Create the Qt application and show the main window."""
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import Qt
+    from ui.main_window import MainWindow
 
-def main():
-    # High DPI
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
@@ -43,4 +51,6 @@ def main():
 
 
 if __name__ == "__main__":
+    # Required for Windows + PyInstaller + multiprocessing; harmless elsewhere.
+    multiprocessing.freeze_support()
     main()
