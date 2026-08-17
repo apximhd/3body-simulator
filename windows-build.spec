@@ -15,6 +15,9 @@ excludes = [
     'OpenGL.GL',
     'OpenGL.GLUT',
     'pyqtgraph.opengl',
+]
+
+hiddenimports += [
     'PyQt6.QtOpenGL',
     'PyQt6.QtOpenGLWidgets',
 ]
