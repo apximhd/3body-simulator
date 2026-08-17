@@ -8,9 +8,9 @@ Omega_AB: 0.0
 omega_AB: 60.0
 M_AB: 0.0
 Q: 1.0
-e_AC: 0.95
+e_AC: 0.99
 i_AC: 0.0
-Omega_AC: 0.0
+Omega_AC: 70.0
 omega_AC: 0.0
 M_AC: 180.0
 t_max: 1000.0

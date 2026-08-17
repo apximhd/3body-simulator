@@ -5,8 +5,14 @@ Main plot (as in Mathematica): cos(i_mut) vs e_in
 
 from __future__ import annotations
 # from statistics import mode
+
 import numpy as np
 import pyqtgraph as pg
+from PyQt6.QtWidgets import QVBoxLayout, QWidget
+
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+from matplotlib.figure import Figure
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  — registers 3d projection
 
 COLORS_GL = {
     0: (1.0, 0.85, 0.1, 1.0),
@@ -20,85 +26,134 @@ COLORS_2D = {
 }
 NAMES = ['A', 'B', 'C']
 
-HAS_OPENGL = False
-try:
-    from pyqtgraph.opengl import (
-        GLViewWidget,
-        GLLinePlotItem,
-        GLScatterPlotItem
-    )
-    HAS_OPENGL = True
-except Exception:
-    HAS_OPENGL = False
 
+class Trajectory3DWidget(QWidget):
+    """Matplotlib-backed 3D orbital trajectory view for the single-run tab."""
 
-if HAS_OPENGL:
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
 
-    class Trajectory3DWidget(GLViewWidget):
-        def __init__(self, parent=None):
-            super().__init__(parent)
-            self.setCameraPosition(distance=40, elevation=25, azimuth=45)
-            self.opts['bgcolor'] = (0.05, 0.05, 0.08, 1.0)
-            self._lines = []
-            self._points = []
+        self._fig = Figure(figsize=(5, 4), dpi=100, tight_layout=True)
+        self._canvas = FigureCanvasQTAgg(self._fig)
+        lay.addWidget(self._canvas)
 
-        def clear_plots(self):
-            for item in self._lines + self._points:
-                self.removeItem(item)
-            self._lines.clear()
-            self._points.clear()
+        self._ax = self._fig.add_subplot(111, projection="3d")
+        self._ax.set_facecolor("#0d0d12")
+        self._fig.patch.set_facecolor("#0d0d12")
+        self._ax.xaxis.pane.set_facecolor((0.08, 0.08, 0.12, 1.0))
+        self._ax.yaxis.pane.set_facecolor((0.08, 0.08, 0.12, 1.0))
+        self._ax.zaxis.pane.set_facecolor((0.08, 0.08, 0.12, 1.0))
+        self._ax.grid(True, alpha=0.3)
+        self._ax.set_box_aspect((1, 1, 1))
+        self._ax.xaxis.label.set_color("#e5e7eb")
+        self._ax.yaxis.label.set_color("#e5e7eb")
+        self._ax.zaxis.label.set_color("#e5e7eb")
+        self._ax.title.set_color("#e5e7eb")
+        self._ax.tick_params(colors="#e5e7eb")
 
-        def plot_trajectories(self, positions: np.ndarray, stride: int = 1):
-            self.clear_plots()
-            if positions.size == 0:
-                return
-            pos = positions[::stride]
-            for i in range(3):
-                pts = pos[:, i, :]
-                line = GLLinePlotItem(pos=pts,
-                                      color=COLORS_GL[i],
-                                      width=1.5,
-                                      antialias=True)
-                self.addItem(line)
-                self._lines.append(line)
-                scatter = GLScatterPlotItem(pos=pts[-1:],
-                                            color=COLORS_GL[i],
-                                            size=8)
-                self.addItem(scatter)
-                self._points.append(scatter)
-            origin = GLScatterPlotItem(
-                pos=np.array([[0., 0., 0.]]),
-                color=(0.7, 0.7, 0.7, 1.0), size=5
+    def clear_plots(self):
+        self._ax.clear()
+        self._ax.set_facecolor("#0d0d12")
+        self._ax.xaxis.pane.set_facecolor((0.08, 0.08, 0.12, 1.0))
+        self._ax.yaxis.pane.set_facecolor((0.08, 0.08, 0.12, 1.0))
+        self._ax.zaxis.pane.set_facecolor((0.08, 0.08, 0.12, 1.0))
+        self._ax.grid(True, alpha=0.3)
+        self._ax.set_box_aspect((1, 1, 1))
+        self._ax.xaxis.label.set_color("#e5e7eb")
+        self._ax.yaxis.label.set_color("#e5e7eb")
+        self._ax.zaxis.label.set_color("#e5e7eb")
+        self._ax.title.set_color("#e5e7eb")
+        self._ax.tick_params(colors="#e5e7eb")
+        self._ax.set_xlabel("x (AU)")
+        self._ax.set_ylabel("y (AU)")
+        self._ax.set_zlabel("z (AU)")
+
+    def plot_trajectories(self, positions: np.ndarray, stride: int = 1):
+        self.clear_plots()
+        if positions.size == 0:
+            return
+
+        pos = np.asarray(positions[::stride], dtype=float)
+        finite = np.isfinite(pos)
+        if not finite.any():
+            return
+
+        for i in range(3):
+            pts = pos[:, i, :]
+            good = np.all(np.isfinite(pts), axis=1)
+            if not np.any(good):
+                continue
+            pts = pts[good]
+            self._ax.plot(
+                pts[:, 0], pts[:, 1], pts[:, 2],
+                color=COLORS_GL[i][:3], linewidth=1.5, alpha=0.95
             )
-            self.addItem(origin)
-            self._points.append(origin)
+            self._ax.scatter(
+                [pts[-1, 0]], [pts[-1, 1]], [pts[-1, 2]],
+                color=[COLORS_GL[i][:3]], s=36, depthshade=True
+            )
 
-else:
+        self._ax.scatter([0.0], [0.0], [0.0], color=[(0.7, 0.7, 0.7)], s=24)
+        self._ax.set_title("3D trajectories")
+        self._ax.title.set_color("#e5e7eb")
+        self._ax.set_xlabel("x (AU)")
+        self._ax.set_ylabel("y (AU)")
+        self._ax.set_zlabel("z (AU)")
+        self._ax.xaxis.label.set_color("#e5e7eb")
+        self._ax.yaxis.label.set_color("#e5e7eb")
+        self._ax.zaxis.label.set_color("#e5e7eb")
+        self._ax.tick_params(colors="#e5e7eb")
 
-    class Trajectory3DWidget(pg.GraphicsLayoutWidget):
-        def __init__(self, parent=None):
-            super().__init__(parent)
-            self.setBackground('#0d0d12')
-            self._plot = self.addPlot(title="XY Projection (OpenGL unavailable)")
-            self._plot.setLabel('bottom', 'x', units='AU')
-            self._plot.setLabel('left', 'y', units='AU')
-            self._plot.showGrid(x=True, y=True, alpha=0.3)
-            self._plot.setAspectLocked(True)
-            self._plot.addLegend()
+        xvals = pos[:, :, 0]
+        yvals = pos[:, :, 1]
+        zvals = pos[:, :, 2]
+        for name, values in (("x", xvals), ("y", yvals), ("z", zvals)):
+            finite = np.asarray(values[np.isfinite(values)], dtype=float)
+            if finite.size == 0:
+                continue
+            lo, hi = finite.min(), finite.max()
+            if np.isclose(lo, hi):
+                pad = 0.5 if np.isclose(lo, 0.0) else abs(lo) * 0.5 + 0.5
+                lo -= pad
+                hi += pad
+            if name == "x":
+                self._ax.set_xlim(lo, hi)
+            elif name == "y":
+                self._ax.set_ylim(lo, hi)
+            else:
+                self._ax.set_zlim(lo, hi)
 
-        def clear_plots(self):
-            self._plot.clear()
+        self._ax.margins(x=0.08, y=0.08, z=0.08)
+        self._fig.tight_layout()
+        self._canvas.draw_idle()
 
-        def plot_trajectories(self, positions: np.ndarray, stride: int = 1):
-            self.clear_plots()
-            if positions.size == 0:
-                return
-            pos = positions[::stride]
-            for i, name in enumerate(NAMES):
-                self._plot.plot(
-                    pos[:, i, 0], pos[:, i, 1],
-                    pen=pg.mkPen(COLORS_2D[i], width=1.5), name=name
-                )
+
+class Trajectory2DWidget(pg.GraphicsLayoutWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setBackground('#0d0d12')
+        self._plot = self.addPlot(title="XY Projection")
+        self._plot.setLabel('bottom', 'x', units='AU')
+        self._plot.setLabel('left', 'y', units='AU')
+        self._plot.showGrid(x=True, y=True, alpha=0.3)
+        self._plot.setAspectLocked(True)
+        self._plot.addLegend()
+
+    def clear_plots(self):
+        self._plot.clear()
+
+    def plot_trajectories(self, positions: np.ndarray, stride: int = 1):
+        self.clear_plots()
+        if positions.size == 0:
+            return
+        pos = positions[::stride]
+        for i, name in enumerate(NAMES):
+            self._plot.plot(
+                pos[:, i, 0], pos[:, i, 1],
+                pen=pg.mkPen(COLORS_2D[i], width=1.5), name=name
+            )
 
 
 class Plot2DWidget(pg.GraphicsLayoutWidget):

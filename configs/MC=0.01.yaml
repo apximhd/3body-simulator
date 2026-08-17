@@ -13,4 +13,4 @@ i_AC: 0.0
 Omega_AC: 0.0
 omega_AC: 10.0
 M_AC: 180.0
-t_max: 50.0
+t_max: 1000.0

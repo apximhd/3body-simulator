@@ -9,10 +9,14 @@ datas = [('configs', 'configs')]
 binaries = []
 hiddenimports = [
     'rebound',
-    'pyqtgraph.opengl',
+]
+excludes = [
     'OpenGL',
     'OpenGL.GL',
-    'OpenGL.platform.win32',
+    'OpenGL.GLUT',
+    'pyqtgraph.opengl',
+    'PyQt6.QtOpenGL',
+    'PyQt6.QtOpenGLWidgets',
 ]
 
 # --- REBOUND (code + native library) ---
@@ -34,8 +38,10 @@ try:
 except Exception as e:
     print('WARNING: could not locate librebound:', e)
 
-# --- PyQt6 / pyqtgraph / OpenGL ---
-for pkg in ('PyQt6', 'pyqtgraph', 'OpenGL'):
+# --- PyQt6 / pyqtgraph ---
+# Do not use collect_all('pyqtgraph') here: it tries to import the old
+# pyqtgraph.opengl submodule, which requires the removed OpenGL dependency.
+for pkg in ('PyQt6',):
     try:
         tmp = collect_all(pkg)
         datas += tmp[0]
@@ -43,6 +49,12 @@ for pkg in ('PyQt6', 'pyqtgraph', 'OpenGL'):
         hiddenimports += tmp[2]
     except Exception:
         pass
+
+try:
+    from PyInstaller.utils.hooks import collect_data_files
+    datas += collect_data_files('pyqtgraph')
+except Exception:
+    pass
 
 a = Analysis(
     ['main.py'],
@@ -53,7 +65,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=excludes,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
