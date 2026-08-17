@@ -106,26 +106,21 @@ class Trajectory3DWidget(QWidget):
         self._ax.zaxis.label.set_color("#e5e7eb")
         self._ax.tick_params(colors="#e5e7eb")
 
-        xvals = pos[:, :, 0]
-        yvals = pos[:, :, 1]
-        zvals = pos[:, :, 2]
-        for name, values in (("x", xvals), ("y", yvals), ("z", zvals)):
-            finite = np.asarray(values[np.isfinite(values)], dtype=float)
-            if finite.size == 0:
-                continue
-            lo, hi = finite.min(), finite.max()
-            if np.isclose(lo, hi):
-                pad = 0.5 if np.isclose(lo, 0.0) else abs(lo) * 0.5 + 0.5
-                lo -= pad
-                hi += pad
-            if name == "x":
-                self._ax.set_xlim(lo, hi)
-            elif name == "y":
-                self._ax.set_ylim(lo, hi)
-            else:
-                self._ax.set_zlim(lo, hi)
+        finite_coords = pos[np.isfinite(pos)]
+        if finite_coords.size:
+            data_min = float(finite_coords.min())
+            data_max = float(finite_coords.max())
+            span = data_max - data_min
+            if np.isclose(span, 0.0):
+                span = 1.0
+            center = (data_min + data_max) / 2.0
+            half_span = span / 2.0 * 1.08
+            limits = (center - half_span, center + half_span)
+            self._ax.set_xlim(limits)
+            self._ax.set_ylim(limits)
+            self._ax.set_zlim(limits)
 
-        self._ax.margins(x=0.08, y=0.08, z=0.08)
+        self._ax.set_box_aspect((1, 1, 1))
         self._fig.tight_layout()
         self._canvas.draw_idle()
 
@@ -357,3 +352,16 @@ class Plot2DWidget(pg.GraphicsLayoutWidget):
         for i, name in enumerate(NAMES):
             p.plot(pos[:, i, 0], pos[:, i, 1],
                    pen=pg.mkPen(COLORS_2D[i], width=1.2), name=name)
+
+        xy = np.asarray(pos[:, :, :2], dtype=float)
+        finite_xy = xy[np.isfinite(xy)]
+        if finite_xy.size:
+            data_min = float(finite_xy.min())
+            data_max = float(finite_xy.max())
+            span = data_max - data_min
+            if np.isclose(span, 0.0):
+                span = 1.0
+            center = (data_min + data_max) / 2.0
+            half_span = span / 2.0 * 1.08
+            limits = (center - half_span, center + half_span)
+            p.setRange(xRange=limits, yRange=limits, padding=0.0)
