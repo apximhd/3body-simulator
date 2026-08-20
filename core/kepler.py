@@ -19,7 +19,7 @@ def solve_kepler(mean_anomaly: float, ecc: float) -> float:
         def f(E):
             return E - ecc * np.sin(E) - mean_anomaly
         E0 = mean_anomaly if ecc < 0.8 else np.pi
-        sol = root_scalar(f, bracket=[mean_anomaly - 2*np.pi, mean_anomaly + 2*np.pi],
+        sol = root_scalar(f, bracket=[mean_anomaly - 2 * np.pi, mean_anomaly + 2 * np.pi],
                           x0=E0, method='brentq')
         return sol.root
     else:
