@@ -114,7 +114,7 @@ def solve_barker(mean_anomaly: float) -> float:
 
 
 def state_parabolic(q: float, i: float, Omega: float, omega: float,
-                     mean_anomaly: float, mu: float):
+                    mean_anomaly: float, mu: float):
     """
     Position and velocity for a parabolic orbit (e = 1) given the
     periapsis distance q and the parabolic mean anomaly.
@@ -211,14 +211,14 @@ def hierarchical_initial_conditions(params: dict):
         if abs(e3 - 1.0) < 1e-9:
             # Parabolic
             n3 = np.sqrt(M123 / (2.0 * q3 ** 3))
-            M3 = -n3 * t_AC
+            M3 = n3 * t_AC
             rC_rel, vC_rel = state_parabolic(q3, i3, Om3, w3, M3, M123)
         else:
             # Hyperbolic
             a3_mag = q3 / (e3 - 1.0)
             a3 = -a3_mag
             n3 = np.sqrt(M123 / a3_mag ** 3)
-            M3 = -n3 * t_AC
+            M3 = n3 * t_AC
             rC_rel, vC_rel = state_from_elements(a3, e3, i3, Om3, w3, M3, M123)
 
     # Centre of mass of the full system
