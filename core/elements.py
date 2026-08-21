@@ -266,17 +266,17 @@ def delta_e_predicted(params: dict) -> float:
     mC = float(params.get('mass_C', 0.01))
     Q = float(params.get('Q', 5.0))
     i_deg = float(params.get('i_AC', 0.0))
-    Omega = float(params.get('Omega_AC', 0.0))
-    ecc = float(params.get('e_AB', 0.0))
-    sin_2Omega = np.sin(np.deg2rad(Omega * 2))
-    sin2_i = np.sin(np.deg2rad(i_deg))**2
+    # Omega = float(params.get('Omega_AC', 0.0))
+    # ecc = float(params.get('e_AB', 0.0))
+    # sin_2Omega = np.sin(np.deg2rad(Omega * 2))
+    # sin2_i = np.sin(np.deg2rad(i_deg))**2
     M12 = mA + mB
-    M123 = M12 + mC
-    # if M12 <= 0 or Q <= 0:
-    #     return float('nan')
-    # cos_i = np.cos(np.deg2rad(i_deg))
-    # return float(0.3 * (mC / M12) * (Q / 2.0) ** (-4) * (1.0 + cos_i) ** 2)
+    # M123 = M12 + mC
+    if M12 <= 0 or Q <= 0:
+        return float('nan')
+    cos_i = np.cos(np.deg2rad(i_deg))
+    return float(0.3 * (mC / M12) * (Q / 2.0) ** (-4) * (1.0 + cos_i) ** 2)
     # print(i_deg, Omega, ecc)
-    result = -15 * np.pi / 16 * np.sqrt(2 * mC**2 / M12 / M123) * Q**(-3 / 2) * ecc * np.sqrt(1 - ecc**2) * sin2_i * sin_2Omega
-    # print(result)
-    return result
+    # result = -15 * np.pi / 16 * np.sqrt(2 * mC**2 / M12 / M123) * Q**(-3 / 2) * ecc * np.sqrt(1 - ecc**2) * sin2_i * sin_2Omega
+    # # print(result)
+    # return result

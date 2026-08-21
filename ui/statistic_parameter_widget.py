@@ -40,19 +40,23 @@ PARAM_SPEC: List[Tuple[str, str, float]] = [
     ("Omega_AC", "Ω_AC (°)",      0.0),
     ("omega_AC", "ω_AC (°)",      155.0),
     ("M_AC",     "M_AC (°)",      0.0),
+    ("t_AC",     "t_AC (y)",      0.0),
 ]
 
 # Parameters that can be scanned (t_max is excluded — always fixed)
 SCANNABLE = {
     "mass_A", "mass_B", "mass_C",
     "a_AB", "e_AB", "i_AB", "Omega_AB", "omega_AB", "M_AB",
-    "Q", "e_AC", "i_AC", "Omega_AC", "omega_AC", "M_AC",
+    "Q", "e_AC", "i_AC", "Omega_AC", "omega_AC", "M_AC", "t_AC",
 }
 
+# M_AC (°) is used when e_AC < 1 (elliptic outer orbit); t_AC (y) is used
+# when e_AC >= 1 (parabolic / hyperbolic outer orbit — time until the third
+# body passes periastron). Only one of the two rows is shown at a time.
 GROUPS = [
     ("Masses (M☉)", ["mass_A", "mass_B", "mass_C"]),
     ("Inner orbit AB", ["a_AB", "e_AB", "i_AB", "Omega_AB", "omega_AB", "M_AB"]),
-    ("Outer orbit C", ["Q", "e_AC", "i_AC", "Omega_AC", "omega_AC", "M_AC"]),
+    ("Outer orbit C", ["Q", "e_AC", "i_AC", "Omega_AC", "omega_AC", "M_AC", "t_AC"]),
 ]
 
 
@@ -206,6 +210,8 @@ class StatisticParameterWidget(QWidget):
         self._build_ui()
         for row in self._rows.values():
             row.changed.connect(self._enforce_max_two)
+        self._rows["e_AC"].changed.connect(self._update_ac_anomaly_row)
+        self._update_ac_anomaly_row()
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
@@ -269,6 +275,28 @@ class StatisticParameterWidget(QWidget):
         row.end.setVisible(False)
         row.step.setVisible(False)
 
+    def _e_ac_has_time_mode_value(self) -> bool:
+        """True if any e_AC value currently configured (fixed value, or any
+        value within the scanned Start/End/Step range) is >= 1."""
+        row = self._rows["e_AC"]
+        if row.is_scanned():
+            s, e, st = row.range_values()
+            try:
+                vals = _values_from_range(s, e, st)
+            except Exception:
+                vals = np.array([s, e])
+            return bool(np.any(vals >= 1.0))
+        return row.fixed_value() >= 1.0
+
+    def _update_ac_anomaly_row(self):
+        """Show t_AC (y) instead of M_AC (°) when at least one configured
+        e_AC value is >= 1 (parabolic / hyperbolic outer orbit)."""
+        if "M_AC" not in self._rows or "t_AC" not in self._rows:
+            return
+        time_mode = self._e_ac_has_time_mode_value()
+        self._rows["M_AC"].setVisible(not time_mode)
+        self._rows["t_AC"].setVisible(time_mode)
+
     def get_base_params(self) -> Dict[str, float]:
 
         result = {}
@@ -318,6 +346,7 @@ class StatisticParameterWidget(QWidget):
         for key, value in params.items():
             if key in self._rows:
                 self._rows[key].set_fixed(float(value))
+        self._update_ac_anomaly_row()
 
     def get_params(self) -> Dict[str, Any]:
         return self.get_base_params()

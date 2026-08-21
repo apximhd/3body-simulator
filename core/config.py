@@ -29,7 +29,8 @@ DEFAULT_PARAMS = {
     "i_AC": 140.0,        # deg
     "Omega_AC": 0.0,
     "omega_AC": 155.0,
-    "M_AC": 0.0,
+    "M_AC": 0.0,          # deg  (mean anomaly, used when e_AC < 1)
+    "t_AC": 0.0,          # years (time until periastron, used when e_AC >= 1)
 
     # Integration
     "t_max": 30000.0,     # years

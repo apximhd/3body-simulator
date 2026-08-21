@@ -6,7 +6,7 @@ Fully consistent with the original Mathematica code logic.
 from __future__ import annotations
 import numpy as np
 from scipy.optimize import root_scalar
-from .constants import DEG
+from .constants import DEG, YEAR
 
 
 def solve_kepler(mean_anomaly: float, ecc: float) -> float:
@@ -97,6 +97,62 @@ def state_from_elements(a: float, ecc: float, i: float, Omega: float, omega: flo
     return r, v
 
 
+def solve_barker(mean_anomaly: float) -> float:
+    """
+    Solves Barker's equation for the parabolic case (e = 1):
+        M = D + D^3/3
+    for D = tan(true_anomaly / 2).
+
+    Closed-form solution of the depressed cubic D^3 + 3D - 3M = 0
+    via Cardano's formula (a single real root always exists because
+    the left-hand side is monotonically increasing in D).
+    """
+    q = -3.0 * mean_anomaly
+    term = np.sqrt((q / 2.0) ** 2 + 1.0)   # (p/3)^3 = 1 since p = 3
+    D = np.cbrt(-q / 2.0 + term) + np.cbrt(-q / 2.0 - term)
+    return D
+
+
+def state_parabolic(q: float, i: float, Omega: float, omega: float,
+                     mean_anomaly: float, mu: float):
+    """
+    Position and velocity for a parabolic orbit (e = 1) given the
+    periapsis distance q and the parabolic mean anomaly.
+    """
+    D = solve_barker(mean_anomaly)
+
+    cos_w, sin_w = np.cos(omega), np.sin(omega)
+    cos_O, sin_O = np.cos(Omega), np.sin(Omega)
+    cos_i, sin_i = np.cos(i), np.sin(i)
+
+    # Unit vectors towards periapsis (P) and perpendicular to it in the
+    # orbital plane, in the direction of motion (Qhat) — same rotation
+    # used in orbital_basis(), but unscaled (a = 1).
+    P = np.array([
+        cos_w * cos_O - sin_w * sin_O * cos_i,
+        cos_w * sin_O + sin_w * cos_O * cos_i,
+        sin_w * sin_i
+    ])
+    Qhat = np.array([
+        -sin_w * cos_O - cos_w * sin_O * cos_i,
+        -sin_w * sin_O + cos_w * cos_O * cos_i,
+        cos_w * sin_i
+    ])
+
+    one_plus_D2 = 1.0 + D * D
+    x_pf = q * (1.0 - D * D)
+    y_pf = 2.0 * q * D
+    r = x_pf * P + y_pf * Qhat
+
+    h = np.sqrt(2.0 * mu * q)           # specific angular momentum (e = 1)
+    factor = mu / h
+    vx_pf = -factor * 2.0 * D / one_plus_D2
+    vy_pf = factor * 2.0 / one_plus_D2
+    v = vx_pf * P + vy_pf * Qhat
+
+    return r, v
+
+
 def hierarchical_initial_conditions(params: dict):
     """
     Builds initial conditions for the AB + C system.
@@ -130,14 +186,40 @@ def hierarchical_initial_conditions(params: dict):
     # --- Outer orbit C relative to CM(AB) ---
     Q = params['Q']
     e3 = params['e_AC']
-    a3 = Q * a12 / (1.0 - e3)          # periapsis = Q * a_AB
+    q3 = Q * a12                       # periapsis distance = Q * a_AB (always finite)
 
     i3 = params['i_AC'] * DEG
     Om3 = params['Omega_AC'] * DEG
     w3 = params['omega_AC'] * DEG
-    M3 = params['M_AC'] * DEG
 
-    rC_rel, vC_rel = state_from_elements(a3, e3, i3, Om3, w3, M3, M123)
+    if e3 < 1.0:
+        # --- Elliptic: mean anomaly is given directly, in degrees ---
+        a3 = q3 / (1.0 - e3)
+        M3 = params['M_AC'] * DEG
+        rC_rel, vC_rel = state_from_elements(a3, e3, i3, Om3, w3, M3, M123)
+    else:
+        # --- Parabolic / hyperbolic: the user supplies the time until
+        # periastron passage (t_AC, in years — same units as T_max),
+        # not a mean anomaly. Convert it to the corresponding
+        # (hyperbolic / parabolic) mean anomaly.
+        #   M(t) = n * (t - t_peri)
+        # so with delta_t = t_AC (time from now until periastron, in
+        # years, positive if periastron lies in the future):
+        #   M(t=0) = -n * delta_t
+        t_AC = params.get('t_AC', 0.0) * YEAR   # years -> internal time units
+
+        if abs(e3 - 1.0) < 1e-9:
+            # Parabolic
+            n3 = np.sqrt(M123 / (2.0 * q3 ** 3))
+            M3 = -n3 * t_AC
+            rC_rel, vC_rel = state_parabolic(q3, i3, Om3, w3, M3, M123)
+        else:
+            # Hyperbolic
+            a3_mag = q3 / (e3 - 1.0)
+            a3 = -a3_mag
+            n3 = np.sqrt(M123 / a3_mag ** 3)
+            M3 = -n3 * t_AC
+            rC_rel, vC_rel = state_from_elements(a3, e3, i3, Om3, w3, M3, M123)
 
     # Centre of mass of the full system
     # At this point rA, rB, rC_rel are relative to CM(AB), so
