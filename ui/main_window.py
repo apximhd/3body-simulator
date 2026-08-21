@@ -221,8 +221,27 @@ class MainWindow(QMainWindow):
         self.spin_tmax_s.setText(f"{float(defaults['t_max']):g}")
 
         self.stat_param_widget.scan_changed.connect(self._refresh_stat_summary)
+        self.spin_tmax.editingFinished.connect(self._update_t_ac_from_tmax)
         self.spin_tmax_s.editingFinished.connect(self._refresh_stat_summary)
+        self.spin_tmax_s.editingFinished.connect(self._update_t_ac_from_tmax)
         self._refresh_stat_summary()
+
+    def _update_t_ac_from_tmax(self):
+        sender = self.sender()
+        if sender is self.spin_tmax:
+            widget = self.param_widget
+        elif sender is self.spin_tmax_s:
+            widget = self.stat_param_widget
+        else:
+            return
+
+        try:
+            t_max = float(sender.text())
+        except ValueError:
+            return
+
+        t_ac = -t_max / 2.0
+        widget.set_params({"t_AC": t_ac})
 
     # ------------------------------------------------------------------ menu
     def _build_menu(self):
