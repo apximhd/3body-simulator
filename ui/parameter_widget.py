@@ -57,31 +57,31 @@ class ParameterWidget(QWidget):
         g_mass = QGroupBox("Masses (M☉)")
         fl = self._make_form()
         g_mass.setLayout(fl)
-        fl.addRow("Mass A",       self._make_field("mass_A",   1.5))
-        fl.addRow("Mass B",       self._make_field("mass_B",   0.5))
-        fl.addRow("Mass C",       self._make_field("mass_C",   0.5))
+        fl.addRow("M<sub>1</sub>",       self._make_field("mass_A",   1.5))
+        fl.addRow("M<sub>2</sub>",       self._make_field("mass_B",   0.5))
+        fl.addRow("M<sub>3</sub>",       self._make_field("mass_C",   0.5))
         main_layout.addWidget(g_mass)
 
         g_ab = QGroupBox("Inner orbit AB")
         fl = self._make_form()
         g_ab.setLayout(fl)
-        fl.addRow("a_AB (AU)",    self._make_field("a_AB",     1.0))
-        fl.addRow("e_AB",         self._make_field("e_AB",     0.6))
-        fl.addRow("i_AB (°)",     self._make_field("i_AB",     0.0))
-        fl.addRow("Ω_AB (°)",     self._make_field("Omega_AB", 0.0))
-        fl.addRow("ω_AB (°)",     self._make_field("omega_AB", 60.0))
-        fl.addRow("M_AB (°)",     self._make_field("M_AB",     0.0))
+        fl.addRow("a<sub>in</sub> (AU)",    self._make_field("a_AB",     1.0))
+        fl.addRow("e<sub>in</sub>",         self._make_field("e_AB",     0.6))
+        fl.addRow("i<sub>in</sub> (°)",     self._make_field("i_AB",     0.0))
+        fl.addRow("Ω<sub>in</sub> (°)",     self._make_field("Omega_AB", 0.0))
+        fl.addRow("ω<sub>in</sub> (°)",     self._make_field("omega_AB", 60.0))
+        fl.addRow("M<sub>in</sub> (°)",     self._make_field("M_AB",     0.0))
         main_layout.addWidget(g_ab)
 
         g_ac = QGroupBox("Outer orbit C")
         fl = self._make_form()
         g_ac.setLayout(fl)
-        fl.addRow("Q (q / a_AB)", self._make_field("Q",        5.0))
+        fl.addRow("Q (q / a<sub>in</sub>)", self._make_field("Q",        5.0))
         self.field_e_AC = self._make_field("e_AC", 0.5)
-        fl.addRow("e_AC",         self.field_e_AC)
-        fl.addRow("i_AC (°)",     self._make_field("i_AC",     140.0))
-        fl.addRow("Ω_AC (°)",     self._make_field("Omega_AC", 0.0))
-        fl.addRow("ω_AC (°)",     self._make_field("omega_AC", 155.0))
+        fl.addRow("e<sub>out</sub>",         self.field_e_AC)
+        fl.addRow("i<sub>out</sub> (°)",     self._make_field("i_AC",     140.0))
+        fl.addRow("Ω<sub>out</sub> (°)",     self._make_field("Omega_AC", 0.0))
+        fl.addRow("ω<sub>out</sub> (°)",     self._make_field("omega_AC", 155.0))
 
         # M_AC (°) is used for elliptic outer orbits (e_AC < 1); it takes
         # the mean anomaly at t = 0. t_AC (y) is used for parabolic /
@@ -96,7 +96,7 @@ class ParameterWidget(QWidget):
         ac_anomaly_layout.setContentsMargins(0, 0, 0, 0)
         ac_anomaly_layout.addWidget(self.field_M_AC)
         ac_anomaly_layout.addWidget(self.field_t_AC)
-        self.label_ac_anomaly = QLabel("M_AC (°)")
+        self.label_ac_anomaly = QLabel("M<sub>out</sub> (°)")
         fl.addRow(self.label_ac_anomaly, ac_anomaly_container)
 
         main_layout.addWidget(g_ac)
@@ -116,11 +116,11 @@ class ParameterWidget(QWidget):
         except ValueError:
             e_ac = 0.0
         if e_ac >= 1.0:
-            self.label_ac_anomaly.setText("t_AC (y)")
+            self.label_ac_anomaly.setText("t<sub>out</sub> (y)")
             self.field_M_AC.setVisible(False)
             self.field_t_AC.setVisible(True)
         else:
-            self.label_ac_anomaly.setText("M_AC (°)")
+            self.label_ac_anomaly.setText("M<sub>out</sub> (°)")
             self.field_M_AC.setVisible(True)
             self.field_t_AC.setVisible(False)
 

@@ -25,22 +25,22 @@ def _make_validator() -> QDoubleValidator:
 
 # (key, display label, default value)
 PARAM_SPEC: List[Tuple[str, str, float]] = [
-    ("mass_A",   "Mass A",        1.5),
-    ("mass_B",   "Mass B",        0.5),
-    ("mass_C",   "Mass C",        0.5),
-    ("a_AB",     "a_AB (AU)",     1.0),
-    ("e_AB",     "e_AB",          0.6),
-    ("i_AB",     "i_AB (°)",      0.0),
-    ("Omega_AB", "Ω_AB (°)",      0.0),
-    ("omega_AB", "ω_AB (°)",      60.0),
-    ("M_AB",     "M_AB (°)",      0.0),
-    ("Q",        "Q (q / a_AB)",  5.0),
-    ("e_AC",     "e_AC",          0.5),
-    ("i_AC",     "i_AC (°)",      140.0),
-    ("Omega_AC", "Ω_AC (°)",      0.0),
-    ("omega_AC", "ω_AC (°)",      155.0),
-    ("M_AC",     "M_AC (°)",      0.0),
-    ("t_AC",     "t_AC (y)",      0.0),
+    ("mass_A",   "M<sub>1</sub>",        1.5),
+    ("mass_B",   "M<sub>2</sub>",        0.5),
+    ("mass_C",   "M<sub>3</sub>",        0.5),
+    ("a_AB",     "a<sub>in</sub> (AU)",     1.0),
+    ("e_AB",     "e<sub>in</sub>",          0.6),
+    ("i_AB",     "i<sub>in</sub> (°)",      0.0),
+    ("Omega_AB", "Ω<sub>in</sub> (°)",      0.0),
+    ("omega_AB", "ω<sub>in</sub> (°)",      60.0),
+    ("M_AB",     "M<sub>in</sub> (°)",      0.0),
+    ("Q",        "Q (q / a<sub>in</sub>)",  5.0),
+    ("e_AC",     "e<sub>out</sub>",         0.5),
+    ("i_AC",     "i<sub>out</sub> (°)",     140.0),
+    ("Omega_AC", "Ω<sub>out</sub> (°)",     0.0),
+    ("omega_AC", "ω<sub>out</sub> (°)",     155.0),
+    ("M_AC",     "M<sub>out</sub> (°)",     0.0),
+    ("t_AC",     "t<sub>out</sub> (y)",     0.0),
 ]
 
 # Parameters that can be scanned (t_max is excluded — always fixed)
@@ -210,6 +210,7 @@ class StatisticParameterWidget(QWidget):
         self._build_ui()
         for row in self._rows.values():
             row.changed.connect(self._enforce_max_two)
+            row.changed.connect(self.scan_changed.emit)
         self._rows["e_AC"].changed.connect(self._update_ac_anomaly_row)
         self._update_ac_anomaly_row()
 
@@ -297,6 +298,47 @@ class StatisticParameterWidget(QWidget):
         self._rows["M_AC"].setVisible(not time_mode)
         self._rows["t_AC"].setVisible(time_mode)
 
+    def describe_params(self) -> List[Tuple[str, List[Dict[str, Any]]]]:
+        """
+        Describe the current configuration for display (e.g. in a summary
+        tab), grouped the same way as the UI.
+
+        Returns a list of (group_title, rows) where each row is a dict:
+          {"key", "label", "scanned": bool,
+           "value": float}                         if not scanned
+           or
+          {"key", "label", "scanned": True,
+           "start": float, "end": float, "step": float}   if scanned
+
+        Whichever of M_AC / t_AC is not relevant for the current e_AC
+        configuration is omitted (see _e_ac_has_time_mode_value).
+        """
+        key_to_label = {k: lbl for k, lbl, _ in PARAM_SPEC}
+        time_mode = self._e_ac_has_time_mode_value()
+
+        result: List[Tuple[str, List[Dict[str, Any]]]] = []
+        for group_title, keys in GROUPS:
+            rows_info = []
+            for key in keys:
+                if key == "M_AC" and time_mode:
+                    continue
+                if key == "t_AC" and not time_mode:
+                    continue
+                row = self._rows[key]
+                info: Dict[str, Any] = {"key": key, "label": key_to_label[key]}
+                if row.is_scanned():
+                    s, e, st = row.range_values()
+                    info["scanned"] = True
+                    info["start"] = s
+                    info["end"] = e
+                    info["step"] = st
+                else:
+                    info["scanned"] = False
+                    info["value"] = row.fixed_value()
+                rows_info.append(info)
+            result.append((group_title, rows_info))
+        return result
+
     def get_base_params(self) -> Dict[str, float]:
 
         result = {}
@@ -347,6 +389,7 @@ class StatisticParameterWidget(QWidget):
             if key in self._rows:
                 self._rows[key].set_fixed(float(value))
         self._update_ac_anomaly_row()
+        self.scan_changed.emit()
 
     def get_params(self) -> Dict[str, Any]:
         return self.get_base_params()

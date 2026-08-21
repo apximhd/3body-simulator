@@ -27,6 +27,7 @@ from core.simulation import run_simulation, SimulationResult
 from core.batch import run_stat_task, default_max_workers
 import csv
 import multiprocessing as mp
+import numpy as np
 from concurrent.futures import ProcessPoolExecutor, as_completed, wait, FIRST_COMPLETED
 
 
@@ -219,6 +220,10 @@ class MainWindow(QMainWindow):
         self.spin_tmax.setText(f"{float(defaults['t_max']):g}")
         self.spin_tmax_s.setText(f"{float(defaults['t_max']):g}")
 
+        self.stat_param_widget.scan_changed.connect(self._refresh_stat_summary)
+        self.spin_tmax_s.editingFinished.connect(self._refresh_stat_summary)
+        self._refresh_stat_summary()
+
     # ------------------------------------------------------------------ menu
     def _build_menu(self):
         menubar = self.menuBar()
@@ -309,7 +314,7 @@ class MainWindow(QMainWindow):
         self.spin_tmax = QLineEdit("30000")
         self.spin_tmax.setMinimumWidth(100)
         self.spin_tmax.setMaximumHeight(21)
-        fl.addRow("T_max (years)", self.spin_tmax)
+        fl.addRow("T<sub>max</sub> (years)", self.spin_tmax)
 
         left_layout.addWidget(g_int)
 
@@ -427,7 +432,7 @@ class MainWindow(QMainWindow):
         fl_s.addRow("Output points", self.spin_noutput_s)
         self.spin_tmax_s = QLineEdit("30000")
         self.spin_tmax_s.setMinimumWidth(100)
-        fl_s.addRow("T_max (years)", self.spin_tmax_s)
+        fl_s.addRow("T<sub>max</sub> (years)", self.spin_tmax_s)
         # 0 = auto (cpu_count - 1)
         self.spin_workers_s = QLineEdit("0")
         self.spin_workers_s.setMinimumWidth(100)
@@ -471,6 +476,17 @@ class MainWindow(QMainWindow):
         self.stat_tabs.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
+
+        # --- Summary tab ---
+        self.stat_summary = QTextEdit()
+        self.stat_summary.setReadOnly(True)
+        self.stat_summary.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        self.stat_summary.setStyleSheet("QTextEdit { background: white; }")
+        self._stat_summary_rows = None
+        self.stat_tabs.addTab(self.stat_summary, "Summary")
 
         # --- Table tab ---
         table_page = QWidget()
@@ -926,6 +942,8 @@ class MainWindow(QMainWindow):
         if not any(ordered):
             ordered = rows
         self._update_stat_plots(ordered)
+        self._stat_summary_rows = ordered
+        self._refresh_stat_summary()
 
     def _update_stat_plots(self, rows: list):
         scanned = getattr(self, "_stat_scanned", []) or []
@@ -962,6 +980,139 @@ class MainWindow(QMainWindow):
             )
         else:
             self.stat_plot_de.clear()
+
+    # ------------------------------------------------------------------ summary tab
+    def _refresh_stat_summary(self, *args):
+        rows = getattr(self, "_stat_summary_rows", None)
+        html = self._build_stat_summary_html(rows)
+        self.stat_summary.setHtml(html)
+
+    @staticmethod
+    def _fmt_num(value) -> str:
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return "—"
+        if not np.isfinite(v):
+            return "—"
+        return f"{v:.6g}"
+
+    def _build_stat_summary_html(self, rows: list | None) -> str:
+        fmt = self._fmt_num
+
+        try:
+            t_max = float(self.spin_tmax_s.text())
+        except ValueError:
+            t_max = float("nan")
+
+        parts = [
+            "<div style=\"font-family: Georgia, 'Cambria Math', 'DejaVu Serif', "
+            "serif; font-size: 11pt; line-height: 1.4;\">",
+            "<h2 style='margin-bottom:4px;'>Statistic Run — Summary</h2>",
+            "<h3 style='margin-bottom:2px;'>Configuration</h3>",
+            "<p style='margin:2px 0 8px 0;'><b>Integration:</b>&nbsp; "
+            f"T<sub>max</sub> = {fmt(t_max)} years</p>",
+        ]
+
+        groups = self.stat_param_widget.describe_params()
+        for group_title, rows_info in groups:
+            parts.append(f"<p style='margin:6px 0 2px 0;'><b>{group_title}</b></p>")
+            parts.append(
+                "<table cellspacing='0' cellpadding='2' "
+                "style='margin-left:14px;'>"
+            )
+            for info in rows_info:
+                label = info["label"]
+                if info.get("scanned"):
+                    s, e, st = info["start"], info["end"], info["step"]
+                    value_html = (
+                        f"{fmt(s)} &nbsp;&rarr;&nbsp; {fmt(e)} "
+                        f"&nbsp;&nbsp;(step&nbsp;&Delta;&nbsp;=&nbsp;{fmt(st)})"
+                    )
+                else:
+                    value_html = fmt(info["value"])
+                parts.append(
+                    f"<tr><td style='padding-right:18px; color:#333;'>{label}"
+                    f"</td><td>{value_html}</td></tr>"
+                )
+            parts.append("</table>")
+
+        parts.append("<h3 style='margin:14px 0 2px 0;'>Results</h3>")
+
+        def column(key: str) -> np.ndarray:
+            vals = []
+            for r in rows or []:
+                if not r or not r.get("success", True):
+                    continue
+                try:
+                    v = float(r.get(key))
+                except (TypeError, ValueError):
+                    continue
+                if np.isfinite(v):
+                    vals.append(v)
+            return np.array(vals, dtype=float)
+
+        if not rows:
+            parts.append(
+                "<p><i>Run a statistic simulation to see results here.</i></p>"
+            )
+        else:
+            R = column("R")
+            de = column("delta_e")
+            dep = column("delta_e_pred")
+            n_ok = sum(1 for r in rows if r and r.get("success", True))
+
+            if R.size == 0 and de.size == 0 and dep.size == 0:
+                parts.append("<p><i>No successful runs to summarise.</i></p>")
+            else:
+                def stat_row(label: str, arr: np.ndarray, cumulative: bool) -> str:
+                    if arr.size == 0:
+                        vmin = vmax = vsum = vavg = "—"
+                    else:
+                        vmin, vmax = fmt(arr.min()), fmt(arr.max())
+                        if cumulative:
+                            vsum, vavg = fmt(arr.sum()), fmt(arr.mean())
+                        else:
+                            vsum = vavg = "—"
+                    return (
+                        f"<tr><td style='padding-right:18px;'>{label}</td>"
+                        f"<td style='padding-right:14px;'>{vmin}</td>"
+                        f"<td style='padding-right:14px;'>{vmax}</td>"
+                        f"<td style='padding-right:14px;'>{vsum}</td>"
+                        f"<td>{vavg}</td></tr>"
+                    )
+
+                parts.append(
+                    "<table cellspacing='0' cellpadding='5' border='1' "
+                    "style='border-collapse:collapse; margin-left:14px;'>"
+                )
+                parts.append(
+                    "<tr style='background:#eee;'>"
+                    "<th>Quantity</th><th>Min</th><th>Max</th>"
+                    "<th>&Sigma; (cumulative)</th><th>x&#772; (average)</th></tr>"
+                )
+                parts.append(stat_row("R (Sundman ratio)", R, cumulative=False))
+                parts.append(
+                    stat_row("&Delta;e<sub>in</sub> (simulated)", de, cumulative=True)
+                )
+                parts.append(
+                    stat_row(
+                        "&Delta;e<sub>in</sub> (predicted)", dep, cumulative=True
+                    )
+                )
+                parts.append("</table>")
+
+                total = len(rows)
+                note = f"Based on {n_ok} successful run(s)"
+                if n_ok != total:
+                    note += f" out of {total} total"
+                note += "."
+                parts.append(
+                    f"<p style='margin-top:8px; color:#555;'><i>{note}</i></p>"
+                )
+
+        parts.append("</div>")
+        return "".join(parts)
 
     def on_simulation_error(self, msg: str):
         if self.mode == "single":
@@ -1071,12 +1222,14 @@ class MainWindow(QMainWindow):
                 self.stat_table.setItem(r_idx, c, QTableWidgetItem(text))
 
         self._update_stat_plots(rows)
+        self._stat_summary_rows = rows
+        self._refresh_stat_summary()
         self.stat_info.setText(
             f"Imported {len(rows)} row(s) from {Path(path).name}. "
             f"Scanned: {', '.join(scanned) if scanned else '(none)'}."
         )
         self.status.showMessage(f"Imported: {path}")
-        self.stat_tabs.setCurrentIndex(0)
+        self.stat_tabs.setCurrentIndex(1)  # Table tab (0 = Summary)
 
     def export_stat_csv(self):
         rows = [r for r in self._stat_rows if r is not None]
