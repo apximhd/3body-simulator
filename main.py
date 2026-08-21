@@ -42,10 +42,10 @@ def main() -> None:
 
     window = MainWindow()
     ag = QApplication.primaryScreen().availableGeometry()
-    if ag.width() < 1400 or ag.height() < 800:
+    if ag.width() < 1400 or ag.height() < 850:
         window.showMaximized()
     else:
-        window.resize(1400, 800)
+        window.resize(1400, 850)
         window.show()
     sys.exit(app.exec())
 

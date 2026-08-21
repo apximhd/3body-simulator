@@ -89,7 +89,7 @@ class ParameterWidget(QWidget):
         # third body passes periastron, in the same units as T_max.
         # Only one of the two fields is shown at a time, depending on e_AC.
         self.field_M_AC = self._make_field("M_AC", 0.0)
-        self.field_t_AC = self._make_field("t_AC", 0.0)
+        self.field_t_AC = self._make_field("t_AC", -50.0)
         self.field_t_AC.setVisible(False)
         ac_anomaly_container = QWidget()
         ac_anomaly_layout = QHBoxLayout(ac_anomaly_container)
