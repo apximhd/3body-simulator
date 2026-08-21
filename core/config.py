@@ -60,4 +60,6 @@ def load_config(filepath: str | Path) -> Dict[str, Any]:
     result = DEFAULT_PARAMS.copy()
     if data:
         result.update(data)
+    if not data or "t_AC" not in data:
+        result["t_AC"] = -float(result["t_max"]) / 2.0
     return result
