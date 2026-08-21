@@ -221,6 +221,12 @@ class MainWindow(QMainWindow):
         self.spin_tmax_s.setText(f"{float(defaults['t_max']):g}")
 
         self.stat_param_widget.scan_changed.connect(self._refresh_stat_summary)
+        self.stat_param_widget._rows["e_AC"].changed.connect(
+            self._update_stat_t_ac_from_e_ac
+        )
+        self.param_widget.field_e_AC.textChanged.connect(
+            self._update_single_t_ac_from_e_ac
+        )
         self.spin_tmax.editingFinished.connect(self._update_t_ac_from_tmax)
         self.spin_tmax_s.editingFinished.connect(self._refresh_stat_summary)
         self.spin_tmax_s.editingFinished.connect(self._update_t_ac_from_tmax)
@@ -242,6 +248,22 @@ class MainWindow(QMainWindow):
 
         t_ac = -t_max / 2.0
         widget.set_params({"t_AC": t_ac})
+
+    def _update_stat_t_ac_from_e_ac(self):
+        try:
+            t_max = float(self.spin_tmax_s.text())
+        except ValueError:
+            return
+        self.stat_param_widget.set_params({"t_AC": -t_max / 2.0})
+
+    def _update_single_t_ac_from_e_ac(self, value: str):
+        try:
+            e_ac = float(value)
+            t_max = float(self.spin_tmax.text())
+        except ValueError:
+            return
+        if e_ac >= 1.0:
+            self.param_widget.field_t_AC.setText(f"{-t_max / 2.0:g}")
 
     # ------------------------------------------------------------------ menu
     def _build_menu(self):
