@@ -219,10 +219,39 @@ class MainWindow(QMainWindow):
         self.stat_param_widget.set_params(defaults)
         self.spin_tmax.setText(f"{float(defaults['t_max']):g}")
         self.spin_tmax_s.setText(f"{float(defaults['t_max']):g}")
+        default_tmax = float(defaults['t_max'])
+        self._last_tmax = {"single": default_tmax, "statistic": default_tmax}
 
         self.stat_param_widget.scan_changed.connect(self._refresh_stat_summary)
+        self.spin_tmax.editingFinished.connect(self._sync_t_ac_with_tmax)
+        self.spin_tmax_s.editingFinished.connect(self._sync_t_ac_with_tmax)
         self.spin_tmax_s.editingFinished.connect(self._refresh_stat_summary)
         self._refresh_stat_summary()
+
+    def _sync_t_ac_with_tmax(self):
+        """Keep the automatic t_AC default tied to the current T_max."""
+        try:
+            mode_key = "statistic" if self.mode == "statistic" else "single"
+            previous_tmax = self._last_tmax[mode_key]
+            current_tmax = float(
+                self.spin_tmax_s.text()
+                if self.mode == "statistic" else self.spin_tmax.text()
+            )
+        except (AttributeError, ValueError):
+            return
+
+        expected_auto_t_ac = -previous_tmax / 2.0
+        field = (self.stat_param_widget._rows["t_AC"].fixed
+                 if self.mode == "statistic"
+                 else self.param_widget.field_t_AC)
+        try:
+            current_t_ac = float(field.text())
+        except ValueError:
+            current_t_ac = None
+        if current_t_ac is not None and np.isclose(
+                current_t_ac, expected_auto_t_ac):
+            field.setText(f"{-current_tmax / 2.0:g}")
+        self._last_tmax[mode_key] = current_tmax
 
     # ------------------------------------------------------------------ menu
     def _build_menu(self):
@@ -656,6 +685,9 @@ class MainWindow(QMainWindow):
                     text = f"{float(params['t_max']):g}"
                     self.spin_tmax.setText(text)
                     self.spin_tmax_s.setText(text)
+                    loaded_tmax = float(params["t_max"])
+                    self._last_tmax["single"] = loaded_tmax
+                    self._last_tmax["statistic"] = loaded_tmax
                 self.status.showMessage(f"Loaded: {path}")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to load:\n{e}")
