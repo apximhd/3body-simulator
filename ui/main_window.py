@@ -525,7 +525,9 @@ class MainWindow(QMainWindow):
             Qt.TextInteractionFlag.TextSelectableByMouse
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
-        self.stat_summary.setStyleSheet("QTextEdit { background: white; }")
+        self.stat_summary.setStyleSheet(
+            "QTextEdit { background-color: white; color: #222; }"
+        )
         self._stat_summary_rows = None
         self.stat_tabs.addTab(self.stat_summary, "Summary")
 
