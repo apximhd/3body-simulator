@@ -1108,21 +1108,28 @@ class MainWindow(QMainWindow):
             if R.size == 0 and de.size == 0 and dep.size == 0:
                 parts.append("<p><i>No successful runs to summarise.</i></p>")
             else:
-                def stat_row(label: str, arr: np.ndarray, cumulative: bool) -> str:
+                def stat_row(
+                    label: str,
+                    arr: np.ndarray,
+                    cumulative: bool,
+                    include_std: bool = False,
+                ) -> str:
                     if arr.size == 0:
-                        vmin = vmax = vsum = vavg = "—"
+                        vmin = vmax = vsum = vavg = std = "—"
                     else:
                         vmin, vmax = fmt(arr.min()), fmt(arr.max())
                         if cumulative:
                             vsum, vavg = fmt(arr.sum()), fmt(arr.mean())
                         else:
                             vsum = vavg = "—"
+                        std = fmt(np.std(arr)) if include_std else "—"
                     return (
                         f"<tr><td style='padding-right:18px;'>{label}</td>"
                         f"<td style='padding-right:14px;'>{vmin}</td>"
                         f"<td style='padding-right:14px;'>{vmax}</td>"
                         f"<td style='padding-right:14px;'>{vsum}</td>"
-                        f"<td>{vavg}</td></tr>"
+                        f"<td style='padding-right:14px;'>{vavg}</td>"
+                        f"<td>{std}</td></tr>"
                     )
 
                 parts.append(
@@ -1132,11 +1139,17 @@ class MainWindow(QMainWindow):
                 parts.append(
                     "<tr style='background:#eee;'>"
                     "<th>Quantity</th><th>Min</th><th>Max</th>"
-                    "<th>&Sigma; (cumulative)</th><th>x&#772; (average)</th></tr>"
+                    "<th>&Sigma; (cumulative)</th><th>x&#772; (average)</th>"
+                    "<th>&sigma; (standard deviation)</th></tr>"
                 )
                 parts.append(stat_row("R (Sundman ratio)", R, cumulative=False))
                 parts.append(
-                    stat_row("&Delta;e<sub>in</sub> (simulated)", de, cumulative=True)
+                    stat_row(
+                        "&Delta;e<sub>in</sub> (simulated)",
+                        de,
+                        cumulative=True,
+                        include_std=True,
+                    )
                 )
                 parts.append(
                     stat_row(
