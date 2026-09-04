@@ -65,23 +65,43 @@ def run_rebound(positions, velocities, masses, t_max, integrator='ias15',
 
     sim.move_to_com()
 
-    times = np.linspace(0.0, t_max, n_output)
-    pos_list = []
-    vel_list = []
-
+    n_output = max(2, int(n_output))
+    interval = t_max / (n_output - 1)
     report_every = max(1, n_output // 50)
 
-    for k, t in enumerate(times):
-        sim.integrate(t)
-        p = np.array([[p.x, p.y, p.z] for p in sim.particles])
-        v = np.array([[p.vx, p.vy, p.vz] for p in sim.particles])
-        pos_list.append(p)
-        vel_list.append(v)
+    times: list = []
+    pos_list: list = []
+    vel_list: list = []
+    next_output = [0.0]
 
-        if progress_cb is not None and (k % report_every == 0 or k == n_output - 1):
-            progress_cb(100.0 * (k + 1) / n_output)
+    def sample(sim_ptr):
+        s = sim_ptr.contents
+        if s.t < next_output[0]:
+            return
+        next_output[0] += interval
+        times.append(s.t)
+        pos_list.append([[p.x, p.y, p.z] for p in s.particles])
+        vel_list.append([[p.vx, p.vy, p.vz] for p in s.particles])
+        if progress_cb is not None and len(times) % report_every == 0:
+            progress_cb(min(100.0, 100.0 * s.t / t_max))
 
-    return times, np.array(pos_list), np.array(vel_list)
+    # Snapshots are taken from inside the integrator's own step loop instead of
+    # stopping at every output time: a stop truncates the current step, which
+    # would make the step sequence — and hence the trajectory of this chaotic
+    # system — depend on t_max and n_output.
+    callback = rebound.simulation.AFF(sample)
+    sim._heartbeat = callback           # keep `callback` alive while sim exists
+    sim.integrate(t_max, exact_finish_time=0)
+
+    if not times or times[-1] < sim.t:
+        times.append(sim.t)
+        pos_list.append([[p.x, p.y, p.z] for p in sim.particles])
+        vel_list.append([[p.vx, p.vy, p.vz] for p in sim.particles])
+
+    if progress_cb is not None:
+        progress_cb(100.0)
+
+    return np.array(times), np.array(pos_list), np.array(vel_list)
 
 
 def run_simulation(params: dict,

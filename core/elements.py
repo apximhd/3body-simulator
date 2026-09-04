@@ -211,18 +211,151 @@ def last_local_minimum(arr: np.ndarray) -> float:
     return float(np.nanmin(arr))
 
 
-def I_min_max(arr: np.ndarray):
+def inner_period(a_in: np.ndarray | float, masses: np.ndarray) -> float:
+    """Orbital period of the inner binary AB in internal time units (G = 1)."""
+    a = np.asarray(a_in, dtype=float)
+    if a.ndim > 0:
+        a = a[np.isfinite(a) & (a > 0.0)]
+        if a.size == 0:
+            return float('nan')
+        a = float(np.median(a))
+    else:
+        a = float(a)
+    M12 = float(masses[0]) + float(masses[1])
+    if not np.isfinite(a) or a <= 0.0 or M12 <= 0.0:
+        return float('nan')
+    return float(2.0 * np.pi * np.sqrt(a ** 3 / M12))
+
+
+def _smooth_out_inner_period(arr: np.ndarray, t: np.ndarray, period: float) -> np.ndarray:
     """
-    I_min = global minimum of I(t).
-    I_max = maximum of I on [0, t_min] (Szebehely: previous max before I_min).
+    Running average of arr over a time window of exactly one inner-binary
+    period, which nulls that harmonic and all of its overtones.
+
+    Works on a non-uniform time grid (snapshots land on the integrator's own
+    step boundaries), so the average is taken from the cumulative integral
+    rather than over a fixed number of samples.
+    """
+    cumulative = np.concatenate(
+        [[0.0], np.cumsum(0.5 * (arr[1:] + arr[:-1]) * np.diff(t))]
+    )
+    half = 0.5 * period
+    lo = np.clip(t - half, t[0], t[-1])
+    hi = np.clip(t + half, t[0], t[-1])
+    span = hi - lo
+    smooth = (np.interp(hi, t, cumulative) - np.interp(lo, t, cumulative))
+    return np.where(span > 0.0, smooth / np.where(span > 0.0, span, 1.0), arr)
+
+
+def I_min_max(arr: np.ndarray, t: np.ndarray | None = None,
+              a_in: np.ndarray | float | None = None,
+              masses: np.ndarray | None = None):
+    """
+    Szebehely pair (I_min, I_max) for the moment-of-inertia series I(t).
+
+    I(t) carries a strong harmonic at the inner-binary period that hides the
+    slow envelope, so the extrema are located on a curve smoothed over exactly
+    one inner period: the last local minimum before the break-up (the final
+    unbounded rise of I) and the local maximum immediately preceding it.
+    The returned values are then read off the *raw* curve within a
+    half-period neighbourhood of those two instants.
+
+    Falls back to the plain global minimum / preceding maximum when the time
+    grid or the inner period is unknown or the smoothed curve has no interior
+    minimum.
     """
     arr = np.asarray(arr, dtype=float)
     if arr.size == 0:
         return float('nan'), float('nan')
-    imin_idx = int(np.nanargmin(arr))
-    I_min = float(arr[imin_idx])
-    I_max = float(np.nanmax(arr[: imin_idx + 1]))
-    return I_min, I_max
+
+    if a_in is None or masses is None:
+        period_inner = float('nan')
+    else:
+        period_inner = inner_period(a_in, masses)
+
+    idx = _extrema_indices(arr, t, period_inner)
+    if idx is None:
+        imin_idx = int(np.nanargmin(arr))
+        return float(arr[imin_idx]), float(np.nanmax(arr[: imin_idx + 1]))
+
+    imin_idx, imax_idx = idx
+    return _parabolic_extremum(arr, imin_idx), _parabolic_extremum(arr, imax_idx)
+
+
+def _parabolic_extremum(arr: np.ndarray, idx: int) -> float:
+    """
+    Sub-sample extremum value from a parabola through the three samples at idx.
+
+    The deep I(t) dips are only a few output points wide, so the sampled value
+    can overestimate the true minimum by tens of percent.
+    """
+    if idx <= 0 or idx >= arr.size - 1:
+        return float(arr[idx])
+    y0, y1, y2 = float(arr[idx - 1]), float(arr[idx]), float(arr[idx + 1])
+    denom = y0 - 2.0 * y1 + y2
+    if not np.isfinite(denom) or abs(denom) < 1e-30:
+        return y1
+    shift = 0.5 * (y0 - y2) / denom
+    if abs(shift) > 1.0:
+        return y1
+    return y1 - 0.25 * (y0 - y2) * shift
+
+
+def _extrema_indices(arr: np.ndarray, t, period_inner):
+    """Raw-curve indices of (last envelope minimum, preceding envelope maximum)."""
+    from scipy.signal import find_peaks
+
+    if t is None:
+        return None
+    t = np.asarray(t, dtype=float)
+    if t.size != arr.size or t.size < 8 or not np.all(np.diff(t) > 0.0):
+        return None
+    if not np.isfinite(period_inner) or period_inner <= 0.0:
+        return None
+
+    duration = t[-1] - t[0]
+    if duration <= 2.0 * period_inner:
+        return None
+
+    samples_per_period = (t.size - 1) * period_inner / duration
+    if samples_per_period < 4.0:
+        # aliased: the AB harmonic cannot be filtered out, so the envelope is
+        # meaningless — leave it to the caller's global-minimum fallback
+        return None
+    smooth = _smooth_out_inner_period(arr, t, period_inner)
+
+    # I spans orders of magnitude, so peaks are ranked in log space: the
+    # threshold is then a relative depth and does not depend on how far the
+    # escaping body has travelled by the end of the run.
+    if np.any(smooth <= 0.0) or not np.all(np.isfinite(smooth)):
+        return None
+    log_smooth = np.log10(smooth)
+    prominence = 0.05                               # dex
+
+    min_idx, _ = find_peaks(-log_smooth, prominence=prominence)
+    max_idx, _ = find_peaks(log_smooth, prominence=prominence)
+    if min_idx.size == 0:
+        return None
+
+    i_min = int(min_idx[-1])
+    preceding = max_idx[max_idx < i_min]
+    i_max = int(preceding[-1]) if preceding.size else int(np.nanargmax(log_smooth[: i_min + 1]))
+
+    half = 0.5 * period_inner
+
+    def refine(centre, take_min, lo_bound, hi_bound):
+        lo = max(lo_bound, int(np.searchsorted(t, t[centre] - half, 'left')))
+        hi = min(hi_bound, int(np.searchsorted(t, t[centre] + half, 'right')))
+        if hi <= lo:
+            return centre
+        seg = arr[lo:hi]
+        off = int(np.nanargmin(seg) if take_min else np.nanargmax(seg))
+        return lo + off
+
+    # keep the maximum strictly before the minimum after refinement
+    j_max = refine(i_max, False, 0, i_min)
+    j_min = refine(i_min, True, j_max + 1, arr.size)
+    return j_min, j_max
 
 
 def total_angular_momentum(positions: np.ndarray, velocities: np.ndarray,

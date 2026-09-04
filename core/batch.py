@@ -42,7 +42,7 @@ def extract_stat_row(
         return row
 
     I = moment_of_inertia(result.positions, result.masses)
-    Imin, Imax = I_min_max(I)
+    Imin, Imax = I_min_max(I, result.t, result.elements["a_in"], result.masses)
     # Conserved total energy and angular momentum (evaluate once at t=0)
     h = float(result.energy[0])
     c = total_angular_momentum(

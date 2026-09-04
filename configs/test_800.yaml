@@ -7,11 +7,11 @@ i_AB: 0.0
 Omega_AB: 0.0
 omega_AB: 0.0
 M_AB: 0.0
-Q: 2.5
-e_AC: 0.95
+Q: 2.3
+e_AC: 0.8
 i_AC: 0.0
 Omega_AC: 0.0
 omega_AC: 0.0
 M_AC: 180.0
-t_AC: -100.0
-t_max: 200.0
+t_AC: -400.0
+t_max: 800.0

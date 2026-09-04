@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  — registers 3d projection
+from core.elements import I_min_max
 
 COLORS_GL = {
     0: (1.0, 0.85, 0.1, 1.0),
@@ -202,6 +203,9 @@ class Plot2DWidget(pg.GraphicsLayoutWidget):
         r_cm = (masses[None, :, None] * pos).sum(axis=1, keepdims=True) / masses.sum()
         dr = pos - r_cm
         moment_of_inertia = (masses[None, :, None] * dr**2).sum(axis=(1, 2))
+        Imin, Imax = I_min_max(moment_of_inertia, t[::stride],
+                               elements.get('a_in'), masses)
+        print(f"Moment of inertia: min={Imin}, max={Imax}")
 
         self.nextRow()
         p2 = self._add_plot(title="Moment of inertia I (t)")

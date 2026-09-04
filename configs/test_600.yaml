@@ -1,6 +1,6 @@
 mass_A: 1.5
 mass_B: 0.5
-mass_C: 0.001
+mass_C: 0.01
 a_AB: 1.0
 e_AB: 0.6
 i_AB: 0.0
@@ -8,10 +8,10 @@ Omega_AB: 0.0
 omega_AB: 0.0
 M_AB: 0.0
 Q: 2.5
-e_AC: 0.95
+e_AC: 0.9
 i_AC: 0.0
 Omega_AC: 0.0
 omega_AC: 0.0
 M_AC: 180.0
-t_AC: -100.0
-t_max: 200.0
+t_AC: -300.0
+t_max: 600.0
