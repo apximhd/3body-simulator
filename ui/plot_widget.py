@@ -203,9 +203,9 @@ class Plot2DWidget(pg.GraphicsLayoutWidget):
         r_cm = (masses[None, :, None] * pos).sum(axis=1, keepdims=True) / masses.sum()
         dr = pos - r_cm
         moment_of_inertia = (masses[None, :, None] * dr**2).sum(axis=(1, 2))
-        Imin, Imax = I_min_max(moment_of_inertia, t[::stride],
-                               elements.get('a_in'), masses)
-        print(f"Moment of inertia: min={Imin}, max={Imax}")
+        # Imin, Imax = I_min_max(moment_of_inertia, t[::stride],
+        #                        elements.get('a_in'), masses)
+        # print(f"Moment of inertia: min={Imin}, max={Imax}")
 
         self.nextRow()
         p2 = self._add_plot(title="Moment of inertia I (t)")

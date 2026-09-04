@@ -560,13 +560,13 @@ class MainWindow(QMainWindow):
         self.stat_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Interactive
         )
-        self.stat_table.horizontalHeader().setStretchLastSection(True)
+        self.stat_table.horizontalHeader().setStretchLastSection(False)
         self.stat_table.horizontalHeader().setMinimumSectionSize(70)
         self.stat_table.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self.stat_table.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOn
         )
         self.stat_table.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
@@ -814,12 +814,16 @@ class MainWindow(QMainWindow):
         max_workers = default_max_workers(max_workers)
 
         result_cols = [
-            "Imax", "Imin", "R", "delta_e", "delta_e_pred"
+            "Imax", "Imin", "R", "delta_e", "delta_e_pred",
+            "e_out_last", "a_out_last", "stability_status",
         ]
         headers = list(scanned) + result_cols
         self.stat_table.clear()
         self.stat_table.setColumnCount(len(headers))
         self.stat_table.setHorizontalHeaderLabels(headers)
+        self.stat_table.horizontalHeader().setSectionResizeMode(
+            headers.index("stability_status"), QHeaderView.ResizeMode.ResizeToContents
+        )
         # Pre-allocate rows in original cycle order; fill by _index as
         # parallel workers complete (so the table stays sorted).
         self.stat_table.setRowCount(n)
@@ -875,12 +879,15 @@ class MainWindow(QMainWindow):
         self._stat_rows[idx] = row
 
         result_keys = {
-            "Imax", "Imin", "R", "delta_e", "delta_e_pred"
+            "Imax", "Imin", "R", "delta_e", "delta_e_pred",
+            "e_out_last", "a_out_last", "stability_status",
         }
         for c, key in enumerate(self._stat_headers):
             val = row.get(key, "")
             if isinstance(val, float):
-                if key in result_keys:
+                if c < 2 and key in {"e_AB", "e_AC", "a_AB"}:
+                    text = f"{val:.3f}"
+                elif key in result_keys:
                     text = f"{val:.8f}"
                 else:
                     text = f"{val:.1f}"
@@ -1194,7 +1201,8 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ import / export
     _RESULT_COLS = (
-        "Imax", "Imin", "R", "delta_e", "delta_e_pred"
+        "Imax", "Imin", "R", "delta_e", "delta_e_pred",
+        "e_out_last", "a_out_last", "stability_status",
     )
 
     def import_stat_csv(self):
@@ -1265,6 +1273,11 @@ class MainWindow(QMainWindow):
         self.stat_table.clear()
         self.stat_table.setColumnCount(len(headers))
         self.stat_table.setHorizontalHeaderLabels(headers)
+        if "stability_status" in headers:
+            self.stat_table.horizontalHeader().setSectionResizeMode(
+                headers.index("stability_status"),
+                QHeaderView.ResizeMode.ResizeToContents,
+            )
         self.stat_table.setRowCount(len(rows))
         self._stat_headers = headers
         self._stat_scanned = scanned
@@ -1276,7 +1289,9 @@ class MainWindow(QMainWindow):
             for c, key in enumerate(headers):
                 val = row.get(key, "")
                 if isinstance(val, float):
-                    if key in result_keys:
+                    if c < 2 and key in {"e_AB", "e_AC", "a_AB"}:
+                        text = f"{val:.3f}"
+                    elif key in result_keys:
                         text = f"{val:.8f}"
                     else:
                         text = f"{val:.1f}"

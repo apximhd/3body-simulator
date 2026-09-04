@@ -59,6 +59,9 @@ def extract_stat_row(
         "R": R,
         "delta_e": de,
         "delta_e_pred": de_pred,
+        "e_out_last": float(result.elements["e_out"][-1]),
+        "a_out_last": float(result.elements["a_out"][-1]),
+        "stability_status": result.message,
         "success": True,
         "message": "OK",
     })
@@ -100,6 +103,7 @@ def run_stat_task(task: Dict[str, Any]) -> Dict[str, Any]:
             dt=dt,
             n_output=n_output,
             progress_cb=None,  # no per-step progress across processes
+            stop_on_instability=True,
         )
         row = extract_stat_row(params, scanned_keys, result)
     except Exception as exc:  # noqa: BLE001 — surface any worker failure
@@ -110,6 +114,9 @@ def run_stat_task(task: Dict[str, Any]) -> Dict[str, Any]:
             "L_in_f": float("nan"),
             "E_0": float("nan"),
             "E_f": float("nan"),
+            "e_out_last": float("nan"),
+            "a_out_last": float("nan"),
+            "stability_status": str(exc),
             "delta_e": float("nan"),
             "success": False,
             "message": str(exc),

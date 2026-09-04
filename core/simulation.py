@@ -48,7 +48,8 @@ def total_energy(pos: np.ndarray, vel: np.ndarray, masses: np.ndarray) -> float:
 
 
 def run_rebound(positions, velocities, masses, t_max, integrator='ias15',
-                dt=1e-3, n_output=2000, progress_cb: ProgressCallback = None):
+                dt=1e-3, n_output=2000, progress_cb: ProgressCallback = None,
+                monitor_outer_orbit: bool = False):
     if not HAS_REBOUND:
         raise RuntimeError("REBOUND is not installed")
 
@@ -73,9 +74,24 @@ def run_rebound(positions, velocities, masses, t_max, integrator='ias15',
     pos_list: list = []
     vel_list: list = []
     next_output = [0.0]
+    instability_time = [None]
 
     def sample(sim_ptr):
         s = sim_ptr.contents
+        if monitor_outer_orbit:
+            from .elements import get_elements
+
+            current_pos = np.array(
+                [[p.x, p.y, p.z] for p in s.particles], dtype=float
+            )
+            current_vel = np.array(
+                [[p.vx, p.vy, p.vz] for p in s.particles], dtype=float
+            )
+            outer = get_elements(current_pos, current_vel, masses)
+            if outer["e_out"] > 1.0 or outer["a_out"] < 0.0:
+                instability_time[0] = float(s.t)
+                sim.stop()
+
         if s.t < next_output[0]:
             return
         next_output[0] += interval
@@ -98,17 +114,19 @@ def run_rebound(positions, velocities, masses, t_max, integrator='ias15',
         pos_list.append([[p.x, p.y, p.z] for p in sim.particles])
         vel_list.append([[p.vx, p.vy, p.vz] for p in sim.particles])
 
-    if progress_cb is not None:
+    if progress_cb is not None and instability_time[0] is None:
         progress_cb(100.0)
 
-    return np.array(times), np.array(pos_list), np.array(vel_list)
+    return (np.array(times), np.array(pos_list), np.array(vel_list),
+            instability_time[0])
 
 
 def run_simulation(params: dict,
                    integrator: str = 'IAS15',
                    dt: float = 1e-3,
                    n_output: int = 2000,
-                   progress_cb: ProgressCallback = None) -> SimulationResult:
+                   progress_cb: ProgressCallback = None,
+                   stop_on_instability: bool = False) -> SimulationResult:
     from .kepler import hierarchical_initial_conditions
     from .constants import YEAR
     from .elements import compute_elements_series
@@ -120,12 +138,24 @@ def run_simulation(params: dict,
         t_max = params.get('t_max', 1000.0) * YEAR
 
         integrator = integrator.upper()
+        from .elements import get_elements
+
+        initial_elements = get_elements(pos0, vel0, masses)
+        monitor_outer_orbit = (
+            stop_on_instability
+            and
+            initial_elements["e_out"] < 1.0
+            and initial_elements["a_out"] > 0.0
+        )
 
         if integrator in ('IAS15', 'WHFAST'):
-            t, pos, vel = run_rebound(pos0, vel0, masses, t_max,
-                                      integrator=integrator.lower(),
-                                      dt=dt, n_output=n_output,
-                                      progress_cb=progress_cb)
+            t, pos, vel, instability_time = run_rebound(
+                pos0, vel0, masses, t_max,
+                integrator=integrator.lower(),
+                dt=dt, n_output=n_output,
+                progress_cb=progress_cb,
+                monitor_outer_orbit=monitor_outer_orbit,
+            )
         else:
             return SimulationResult(
                 False, f"Unknown integrator: {integrator}",
@@ -133,17 +163,34 @@ def run_simulation(params: dict,
                 np.array([]), {}, 0.0, 0, integrator, params
             )
 
-        if progress_cb is not None:
+        if progress_cb is not None and instability_time is None:
             progress_cb(100.0)
 
         energy = np.array([total_energy(pos[i], vel[i], masses) for i in range(len(t))])
         elements = compute_elements_series(pos, vel, masses)
 
+        if monitor_outer_orbit:
+            a_initial = initial_elements["a_out"]
+            total_mass = float(np.sum(masses))
+            period_years = np.sqrt(a_initial**3 / total_mass)
+            end_time = float(t[-1]) / YEAR
+            n_out = end_time / period_years
+            if instability_time is None:
+                stability_message = (
+                    f"Stable: {end_time:.1f} years ({n_out:.0f} revs)"
+                )
+            else:
+                stability_message = (
+                    f"Brake at: {end_time:.1f} years ({n_out:.0f} revs)"
+                )
+        else:
+            stability_message = "N/A (e_out >= 1 initially)"
+
         wall = time.perf_counter() - t0
 
         return SimulationResult(
             success=True,
-            message="OK",
+            message=stability_message,
             t=t,
             positions=pos,
             velocities=vel,
