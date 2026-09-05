@@ -885,7 +885,7 @@ class MainWindow(QMainWindow):
         for c, key in enumerate(self._stat_headers):
             val = row.get(key, "")
             if isinstance(val, float):
-                if c < 2 and key in {"e_AB", "e_AC", "a_AB"}:
+                if c < 2 and key in {"e_AB", "e_AC", "a_AB", "Q"}:
                     text = f"{val:.3f}"
                 elif key in result_keys:
                     text = f"{val:.8f}"

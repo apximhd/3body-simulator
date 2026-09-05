@@ -16,6 +16,8 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from matplotlib.ticker import FormatStrFormatter, ScalarFormatter
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  — registers 3d projection
+from matplotlib.colors import TwoSlopeNorm, LinearSegmentedColormap
+import matplotlib.pyplot as plt
 
 
 def _plain_ticks(ax):
@@ -142,9 +144,34 @@ class StatPlotWidget(QWidget):
         if np.all(np.isnan(z_plot)):
             ax.text2D(0.3, 0.5, "No valid data", transform=ax.transAxes)
         else:
+            # Use red and green shades with sharp transition at 0
+            if zlabel in ("Δe (sim)", "Δe (pred)"):
+                # Red shades for negative, green shades for positive
+                colors = [
+                    '#8B0000',  # dark red
+                    '#CD0000',  # indian red
+                    '#FF0000',  # red
+                    '#00FF00',  # green
+                    '#00CD00',  # dark green
+                    '#003300',  # very dark green
+                ]
+                cmap_name = LinearSegmentedColormap.from_list('RedGreen', colors, N=256)
+                # Find valid data range for normalization
+                valid_mask = np.isfinite(z_plot)
+                if valid_mask.any():
+                    vmin, vmax = np.nanmin(z_plot), np.nanmax(z_plot)
+                    # Use diverging norm centered at 0
+                    norm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
+                else:
+                    norm = None
+            else:
+                cmap_name = "viridis"
+                norm = None
+            
             surf = ax.plot_surface(
                 X, Y, z_plot,
-                cmap="viridis",
+                cmap=cmap_name,
+                norm=norm,
                 edgecolor="none",
                 alpha=0.95,
                 linewidth=0,
@@ -212,8 +239,29 @@ class StatPlotWidget(QWidget):
         Z1p = np.where(np.isfinite(Z1p), Z1p, np.nan)
         Z2p = np.where(np.isfinite(Z2p), Z2p, np.nan)
         if not np.all(np.isnan(Z1p)):
+            # Use red and green shades for delta_e plots
+            if label1 in ("Δe (sim)", "Δe (pred)"):
+                colors = [
+                    '#8B0000',  # dark red
+                    '#CD0000',  # indian red
+                    '#FF0000',  # red
+                    '#00FF00',  # green
+                    '#00CD00',  # dark green
+                    '#003300',  # very dark green
+                ]
+                cmap_name = LinearSegmentedColormap.from_list('RedGreen', colors, N=256)
+                valid_mask = np.isfinite(Z1p)
+                if valid_mask.any():
+                    vmin, vmax = np.nanmin(Z1p), np.nanmax(Z1p)
+                    norm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
+                else:
+                    norm = None
+            else:
+                cmap_name = "viridis"
+                norm = None
+            
             s1 = ax.plot_surface(
-                X, Y, Z1p, cmap="viridis", alpha=0.85,
+                X, Y, Z1p, cmap=cmap_name, norm=norm, alpha=0.85,
                 edgecolor="none", linewidth=0, antialiased=True,
             )
             colorbar = self._fig.colorbar(
