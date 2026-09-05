@@ -815,12 +815,16 @@ class MainWindow(QMainWindow):
 
         result_cols = [
             "Imax", "Imin", "R", "delta_e", "delta_e_pred",
-            "e_out_last", "a_out_last", "stability_status",
+            "e_out_last", "a_out_last", "a_in_ratio", "stability_status",
         ]
         headers = list(scanned) + result_cols
+        # Create display headers with more informative names
+        display_headers = [
+            h.replace("a_in_ratio", "a_in_last/a_in_init") for h in headers
+        ]
         self.stat_table.clear()
         self.stat_table.setColumnCount(len(headers))
-        self.stat_table.setHorizontalHeaderLabels(headers)
+        self.stat_table.setHorizontalHeaderLabels(display_headers)
         self.stat_table.horizontalHeader().setSectionResizeMode(
             headers.index("stability_status"), QHeaderView.ResizeMode.ResizeToContents
         )
@@ -880,13 +884,15 @@ class MainWindow(QMainWindow):
 
         result_keys = {
             "Imax", "Imin", "R", "delta_e", "delta_e_pred",
-            "e_out_last", "a_out_last", "stability_status",
+            "e_out_last", "a_out_last", "a_in_ratio", "stability_status",
         }
         for c, key in enumerate(self._stat_headers):
             val = row.get(key, "")
             if isinstance(val, float):
                 if c < 2 and key in {"e_AB", "e_AC", "a_AB", "Q"}:
                     text = f"{val:.3f}"
+                elif key == "a_in_ratio":
+                    text = f"{val:.5f}"
                 elif key in result_keys:
                     text = f"{val:.8f}"
                 else:
@@ -1202,7 +1208,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ import / export
     _RESULT_COLS = (
         "Imax", "Imin", "R", "delta_e", "delta_e_pred",
-        "e_out_last", "a_out_last", "stability_status",
+        "e_out_last", "a_out_last", "a_in_ratio", "stability_status",
     )
 
     def import_stat_csv(self):

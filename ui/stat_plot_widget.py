@@ -9,7 +9,7 @@ from typing import List, Optional, Sequence
 
 import numpy as np
 from scipy.interpolate import griddata
-from PyQt6.QtWidgets import QVBoxLayout, QWidget, QSizePolicy, QLabel
+from PyQt6.QtWidgets import QVBoxLayout, QWidget, QSizePolicy, QLabel, QHBoxLayout, QPushButton, QFileDialog
 from PyQt6.QtCore import Qt
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -55,17 +55,46 @@ class StatPlotWidget(QWidget):
         self._canvas = FigureCanvasQTAgg(self._fig)
         lay.addWidget(self._canvas)
 
+        # Save buttons row
+        btn_lay = QHBoxLayout()
+        self.btn_save_png = QPushButton("Save PNG")
+        self.btn_save_eps = QPushButton("Save EPS")
+        self.btn_save_png.clicked.connect(self._save_png)
+        self.btn_save_eps.clicked.connect(self._save_eps)
+        btn_lay.addStretch()
+        btn_lay.addWidget(self.btn_save_png)
+        btn_lay.addWidget(self.btn_save_eps)
+        lay.addLayout(btn_lay)
+
         self._placeholder = QLabel("Run a statistic scan to see this plot.")
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setStyleSheet("color: #888;")
         lay.addWidget(self._placeholder)
         self._canvas.hide()
+        self.btn_save_png.hide()
+        self.btn_save_eps.hide()
 
     def clear(self):
         self._fig.clear()
         self._canvas.draw_idle()
         self._canvas.hide()
+        self.btn_save_png.hide()
+        self.btn_save_eps.hide()
         self._placeholder.show()
+
+    def _save_png(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save plot as PNG", f"{self._title}.png", "PNG (*.png)"
+        )
+        if path:
+            self._fig.savefig(path, dpi=150, bbox_inches='tight')
+
+    def _save_eps(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save plot as EPS", f"{self._title}.eps", "EPS (*.eps)"
+        )
+        if path:
+            self._fig.savefig(path, format='eps', bbox_inches='tight')
 
     @staticmethod
     def _smooth_surface(x, y, z):
@@ -104,6 +133,8 @@ class StatPlotWidget(QWidget):
     ):
         self._placeholder.hide()
         self._canvas.show()
+        self.btn_save_png.show()
+        self.btn_save_eps.show()
         self._fig.clear()
         ax = self._fig.add_subplot(111)
         mask = np.isfinite(x) & np.isfinite(y)
@@ -134,6 +165,8 @@ class StatPlotWidget(QWidget):
         """
         self._placeholder.hide()
         self._canvas.show()
+        self.btn_save_png.show()
+        self.btn_save_eps.show()
         self._fig.clear()
         ax = self._fig.add_subplot(111, projection="3d")
 
@@ -203,6 +236,8 @@ class StatPlotWidget(QWidget):
     ):
         self._placeholder.hide()
         self._canvas.show()
+        self.btn_save_png.show()
+        self.btn_save_eps.show()
         self._fig.clear()
         ax = self._fig.add_subplot(111)
         mask = np.isfinite(x)
@@ -232,6 +267,8 @@ class StatPlotWidget(QWidget):
         """Two surfaces on the same 3D axes (sim solid, pred wireframe)."""
         self._placeholder.hide()
         self._canvas.show()
+        self.btn_save_png.show()
+        self.btn_save_eps.show()
         self._fig.clear()
         ax = self._fig.add_subplot(111, projection="3d")
         X, Y, Z1p = self._smooth_surface(x, y, Z1)
