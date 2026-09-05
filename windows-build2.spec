@@ -50,6 +50,7 @@ hiddenimports = [
     'matplotlib.backends.backend_qtagg',
     'matplotlib.backends.backend_qt',
     'matplotlib.backends.backend_agg',
+    'matplotlib.backends.backend_ps',
     'matplotlib.figure',
     'matplotlib.pyplot',
     'matplotlib.ticker',
@@ -175,7 +176,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={
         'matplotlib': {
-            'backends': ['QtAgg', 'Agg'],
+            'backends': ['QtAgg', 'Agg', 'PS'],
         },
     },
     runtime_hooks=[],

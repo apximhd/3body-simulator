@@ -5,11 +5,15 @@ Uses matplotlib for cross-platform 2D/3D rendering inside Qt.
 
 from __future__ import annotations
 
+import logging
 from typing import List, Optional, Sequence
 
 import numpy as np
 from scipy.interpolate import griddata
-from PyQt6.QtWidgets import QVBoxLayout, QWidget, QSizePolicy, QLabel, QHBoxLayout, QPushButton, QFileDialog
+from PyQt6.QtWidgets import (
+    QVBoxLayout, QWidget, QSizePolicy, QLabel, QHBoxLayout, QPushButton,
+    QFileDialog, QMessageBox,
+)
 from PyQt6.QtCore import Qt
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -93,8 +97,52 @@ class StatPlotWidget(QWidget):
         path, _ = QFileDialog.getSaveFileName(
             self, "Save plot as EPS", f"{self._title}.eps", "EPS (*.eps)"
         )
-        if path:
-            self._fig.savefig(path, format='eps', bbox_inches='tight')
+        if not path:
+            return
+
+        artists = [self._fig, *self._fig.findobj()]
+        artist_states = []
+        try:
+            for artist in artists:
+                get_alpha = getattr(artist, "get_alpha", None)
+                set_alpha = getattr(artist, "set_alpha", None)
+                alpha = get_alpha() if get_alpha is not None else None
+                if set_alpha is not None and alpha is not None and alpha < 1:
+                    set_alpha(1.0)
+                color_states = []
+                for get_colors_name, set_colors_name in (
+                    ("get_facecolors", "set_facecolors"),
+                    ("get_edgecolors", "set_edgecolors"),
+                ):
+                    get_colors = getattr(artist, get_colors_name, None)
+                    set_colors = getattr(artist, set_colors_name, None)
+                    colors = get_colors() if get_colors is not None else None
+                    if set_colors is not None and colors is not None:
+                        opaque_colors = np.array(colors, copy=True)
+                        if opaque_colors.ndim >= 2 and opaque_colors.shape[-1] == 4:
+                            opaque_colors[..., 3] = 1.0
+                            set_colors(opaque_colors)
+                    color_states.append((set_colors, colors))
+                artist_states.append((set_alpha, alpha, color_states))
+            backend_logger = logging.getLogger("matplotlib.backends.backend_ps")
+            previous_log_level = backend_logger.level
+            backend_logger.setLevel(logging.ERROR)
+            try:
+                self._fig.savefig(
+                    path, format="eps", bbox_inches="tight", transparent=False
+                )
+            finally:
+                backend_logger.setLevel(previous_log_level)
+        except Exception as error:
+            QMessageBox.critical(self, "Save error", f"Failed to save EPS:\n{error}")
+        finally:
+            for set_alpha, alpha, color_states in artist_states:
+                if set_alpha is not None:
+                    set_alpha(alpha)
+                for set_colors, colors in color_states:
+                    if set_colors is not None and colors is not None:
+                        set_colors(colors)
+            self._canvas.draw_idle()
 
     @staticmethod
     def _smooth_surface(x, y, z):
