@@ -480,7 +480,7 @@ class MainWindow(QMainWindow):
         self.spin_tdelay_s.setToolTip(
             "Time to continue calculating after instability condition (e_out >= 1 or a_out <= 0) is met."
         )
-        fl_s.addRow("t delay (years)", self.spin_tdelay_s)
+        fl_s.addRow("Extra Time (years)", self.spin_tdelay_s)
         # 0 = auto (cpu_count - 1)
         self.spin_workers_s = QLineEdit("0")
         self.spin_workers_s.setMinimumWidth(100)
