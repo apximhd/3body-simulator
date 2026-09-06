@@ -34,6 +34,7 @@ DEFAULT_PARAMS = {
 
     # Integration
     "t_max": 30000.0,     # years
+    "t_delay": 50.0,    # years (continue after instability for this duration)
 }
 
 

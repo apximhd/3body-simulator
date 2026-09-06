@@ -15,3 +15,4 @@ omega_AC: 0.0
 M_AC: 180.0
 t_AC: -500.0
 t_max: 1000.0
+t_delay: 100.0

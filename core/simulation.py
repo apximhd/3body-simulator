@@ -48,10 +48,12 @@ def total_energy(pos: np.ndarray, vel: np.ndarray, masses: np.ndarray) -> float:
 
 
 def run_rebound(positions, velocities, masses, t_max, integrator='ias15',
-                dt=1e-3, n_output=2000, progress_cb: ProgressCallback = None,
-                monitor_outer_orbit: bool = False):
+               dt=1e-3, n_output=2000, progress_cb: ProgressCallback = None,
+               monitor_outer_orbit: bool = False, t_delay: float = 0.0):
     if not HAS_REBOUND:
         raise RuntimeError("REBOUND is not installed")
+
+    from .constants import YEAR
 
     sim = rebound.Simulation()
     sim.units = ('AU', 'yr2pi', 'Msun')
@@ -75,25 +77,34 @@ def run_rebound(positions, velocities, masses, t_max, integrator='ias15',
     vel_list: list = []
     next_output = [0.0]
     instability_time = [None]
+    candidate_instability_time = [None]
+    monitor_enabled = [True]
+
+    def outer_orbit_is_unstable(simulation):
+        from .elements import get_elements
+
+        current_pos = np.array(
+            [[p.x, p.y, p.z] for p in simulation.particles], dtype=float
+        )
+        current_vel = np.array(
+            [[p.vx, p.vy, p.vz] for p in simulation.particles], dtype=float
+        )
+        outer = get_elements(current_pos, current_vel, masses)
+        return outer["e_out"] >= 1.0 or outer["a_out"] <= 0.0
 
     def sample(sim_ptr):
         s = sim_ptr.contents
-        if monitor_outer_orbit:
-            from .elements import get_elements
-
-            current_pos = np.array(
-                [[p.x, p.y, p.z] for p in s.particles], dtype=float
-            )
-            current_vel = np.array(
-                [[p.vx, p.vy, p.vz] for p in s.particles], dtype=float
-            )
-            outer = get_elements(current_pos, current_vel, masses)
-            if outer["e_out"] > 1.0 or outer["a_out"] < 0.0:
-                instability_time[0] = float(s.t)
-                sim.stop()
-
         if s.t < next_output[0]:
             return
+
+        # Evaluate at output checkpoints, not at every adaptive IAS15 step.
+        # This bounds the monitoring cost by n_output.
+        if (monitor_outer_orbit and monitor_enabled[0]
+                and float(s.t) < t_max and candidate_instability_time[0] is None
+                and outer_orbit_is_unstable(s)):
+            candidate_instability_time[0] = float(s.t)
+            sim_ptr.contents.stop()
+
         next_output[0] += interval
         times.append(s.t)
         pos_list.append([[p.x, p.y, p.z] for p in s.particles])
@@ -107,14 +118,32 @@ def run_rebound(positions, velocities, masses, t_max, integrator='ias15',
     # system — depend on t_max and n_output.
     callback = rebound.simulation.AFF(sample)
     sim._heartbeat = callback           # keep `callback` alive while sim exists
-    sim.integrate(t_max, exact_finish_time=0)
+      
+    while sim.t < t_max:
+        candidate_instability_time[0] = None
+        sim.integrate(t_max, exact_finish_time=0)
+
+        if candidate_instability_time[0] is None:
+            break
+
+        monitor_enabled[0] = False
+        if t_delay > 0:
+            sim.integrate(
+                candidate_instability_time[0] + t_delay * YEAR,
+                exact_finish_time=0,
+            )
+        monitor_enabled[0] = True
+
+        if outer_orbit_is_unstable(sim):
+            instability_time[0] = candidate_instability_time[0]
+            break
 
     if not times or times[-1] < sim.t:
         times.append(sim.t)
         pos_list.append([[p.x, p.y, p.z] for p in sim.particles])
         vel_list.append([[p.vx, p.vy, p.vz] for p in sim.particles])
 
-    if progress_cb is not None and instability_time[0] is None:
+    if progress_cb is not None:
         progress_cb(100.0)
 
     return (np.array(times), np.array(pos_list), np.array(vel_list),
@@ -136,6 +165,7 @@ def run_simulation(params: dict,
     try:
         pos0, vel0, masses = hierarchical_initial_conditions(params)
         t_max = params.get('t_max', 1000.0) * YEAR
+        t_delay = params.get('t_delay', 0.0)
 
         integrator = integrator.upper()
         from .elements import get_elements
@@ -155,6 +185,7 @@ def run_simulation(params: dict,
                 dt=dt, n_output=n_output,
                 progress_cb=progress_cb,
                 monitor_outer_orbit=monitor_outer_orbit,
+                t_delay=t_delay,
             )
         else:
             return SimulationResult(
@@ -173,15 +204,17 @@ def run_simulation(params: dict,
             a_initial = initial_elements["a_out"]
             total_mass = float(np.sum(masses))
             period_years = np.sqrt(a_initial**3 / total_mass)
-            end_time = float(t[-1]) / YEAR
-            n_out = end_time / period_years
             if instability_time is None:
+                end_time = float(t[-1]) / YEAR
+                n_out = end_time / period_years
                 stability_message = (
-                    f"Stable: {end_time:.1f} years ({n_out:.0f} revs)"
+                    f"Stable at T_max: {end_time:.1f} years ({n_out:.0f} revs)"
                 )
             else:
+                instability_years = instability_time / YEAR
+                n_out = instability_years / period_years
                 stability_message = (
-                    f"Brake at: {end_time:.1f} years ({n_out:.0f} revs)"
+                    f"Brake at: {instability_years:.1f} years ({n_out:.0f} revs)"
                 )
         else:
             stability_message = "N/A (e_out >= 1 initially)"

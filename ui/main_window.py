@@ -219,6 +219,7 @@ class MainWindow(QMainWindow):
         self.stat_param_widget.set_params(defaults)
         self.spin_tmax.setText(f"{float(defaults['t_max']):g}")
         self.spin_tmax_s.setText(f"{float(defaults['t_max']):g}")
+        self.spin_tdelay_s.setText(f"{float(defaults['t_delay']):g}")
 
         self.stat_param_widget.scan_changed.connect(self._refresh_stat_summary)
         self.stat_param_widget._rows["e_AC"].changed.connect(
@@ -474,6 +475,12 @@ class MainWindow(QMainWindow):
         self.spin_tmax_s = QLineEdit("30000")
         self.spin_tmax_s.setMinimumWidth(100)
         fl_s.addRow("T<sub>max</sub> (years)", self.spin_tmax_s)
+        self.spin_tdelay_s = QLineEdit("1000")
+        self.spin_tdelay_s.setMinimumWidth(100)
+        self.spin_tdelay_s.setToolTip(
+            "Time to continue calculating after instability condition (e_out >= 1 or a_out <= 0) is met."
+        )
+        fl_s.addRow("t delay (years)", self.spin_tdelay_s)
         # 0 = auto (cpu_count - 1)
         self.spin_workers_s = QLineEdit("0")
         self.spin_workers_s.setMinimumWidth(100)
@@ -699,6 +706,9 @@ class MainWindow(QMainWindow):
                     text = f"{float(params['t_max']):g}"
                     self.spin_tmax.setText(text)
                     self.spin_tmax_s.setText(text)
+                if "t_delay" in params:
+                    text = f"{float(params['t_delay']):g}"
+                    self.spin_tdelay_s.setText(text)
                 self.status.showMessage(f"Loaded: {path}")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to load:\n{e}")
@@ -714,6 +724,7 @@ class MainWindow(QMainWindow):
                 if self.mode == "statistic":
                     params = self.stat_param_widget.get_params()
                     params["t_max"] = float(self.spin_tmax_s.text())
+                    params["t_delay"] = float(self.spin_tdelay_s.text())
                 else:
                     params = self.param_widget.get_params()
                     params["t_max"] = float(self.spin_tmax.text())
@@ -782,8 +793,10 @@ class MainWindow(QMainWindow):
             details.append(f"  {key}: {vals.tolist()}  ({len(vals)} values)")
         param_sets = self.stat_param_widget.iter_param_sets()
         t_max = float(self.spin_tmax_s.text())
+        t_delay = float(self.spin_tdelay_s.text())
         for params in param_sets:
             params["t_max"] = t_max
+            params["t_delay"] = t_delay
         n = len(param_sets)
 
         if n <= 1:
@@ -1061,13 +1074,19 @@ class MainWindow(QMainWindow):
         except ValueError:
             t_max = float("nan")
 
+        try:
+            t_delay = float(self.spin_tdelay_s.text())
+        except ValueError:
+            t_delay = float("nan")
+
         parts = [
             "<div style=\"font-family: Georgia, 'Cambria Math', 'DejaVu Serif', "
             "serif; font-size: 11pt; line-height: 1.4;\">",
             "<h2 style='margin-bottom:4px;'>Statistic Run — Summary</h2>",
             "<h3 style='margin-bottom:2px;'>Configuration</h3>",
             "<p style='margin:2px 0 8px 0;'><b>Integration:</b>&nbsp; "
-            f"T<sub>max</sub> = {fmt(t_max)} years</p>",
+            f"T<sub>max</sub> = {fmt(t_max)} years,&nbsp;&nbsp;"
+            f"t<sub>delay</sub> = {fmt(t_delay)} years</p>",
         ]
 
         groups = self.stat_param_widget.describe_params()
