@@ -28,14 +28,15 @@ if str(ROOT) not in sys.path:
 
 def main() -> None:
     """Create the Qt application and show the main window."""
-    from PyQt6.QtWidgets import QApplication
     from PyQt6.QtCore import Qt
-    from ui.main_window import MainWindow
+    from PyQt6.QtWidgets import QApplication
 
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
     app = QApplication(sys.argv)
+    from ui.main_window import MainWindow
+
     app.setStyle("Fusion")
     app.setApplicationName("3-Body AB+C Simulator")
     app.setOrganizationName("3BodyLab")

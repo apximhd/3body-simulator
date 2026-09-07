@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
+from PyQt6.QtGui import QOffscreenSurface, QOpenGLContext, QSurfaceFormat
 from PyQt6.QtWidgets import QVBoxLayout, QWidget, QLabel
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -27,18 +28,48 @@ COLORS_2D = {
 }
 NAMES = ['A', 'B', 'C']
 
-HAS_OPENGL = False
-try:
-    from pyqtgraph.opengl import (
-        GLViewWidget,
-        GLLinePlotItem,
-        GLScatterPlotItem,
-        GLGridItem,
-        GLAxisItem,
-    )
-    HAS_OPENGL = True
-except Exception:
-    HAS_OPENGL = False
+def _has_usable_opengl() -> bool:
+    """Return whether this process can create and use a basic GL context."""
+    format_ = QSurfaceFormat()
+    format_.setRenderableType(QSurfaceFormat.RenderableType.OpenGL)
+    format_.setVersion(2, 1)
+    surface = QOffscreenSurface()
+    surface.setFormat(format_)
+    surface.create()
+    if not surface.isValid():
+        return False
+
+    context = QOpenGLContext()
+    context.setFormat(format_)
+    if not context.create() or not context.makeCurrent(surface):
+        surface.destroy()
+        return False
+
+    try:
+        from OpenGL import GL
+
+        GL.glGetError()
+        GL.glClearColor(0.05, 0.05, 0.08, 1.0)
+        return GL.glGetError() == GL.GL_NO_ERROR
+    except Exception:
+        return False
+    finally:
+        context.doneCurrent()
+        surface.destroy()
+
+
+HAS_OPENGL = _has_usable_opengl()
+if HAS_OPENGL:
+    try:
+        from pyqtgraph.opengl import (
+            GLViewWidget,
+            GLLinePlotItem,
+            GLScatterPlotItem,
+            GLGridItem,
+            GLAxisItem,
+        )
+    except Exception:
+        HAS_OPENGL = False
 
 
 def _positions_relative_to_cm_ab(positions: np.ndarray,

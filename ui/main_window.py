@@ -425,7 +425,7 @@ class MainWindow(QMainWindow):
         right.addTab(self.view3d, "3D trajectories")
 
         self.view3d_gl = TrajectoryGL3DWidget()
-        right.addTab(self.view3d_gl, "3D trajectories (CM AB, pyqtgraph)")
+        right.addTab(self.view3d_gl, "3D trajectories (CM AB)")
 
         self.plot_energy = Plot2DWidget()
         right.addTab(self.plot_energy, "Total Energy check")
