@@ -60,7 +60,9 @@ hiddenimports = [
 
     # --- pyqtgraph (all 2D tabs, including stacked plots on first tab) ---
     'pyqtgraph',
-    *collect_submodules('pyqtgraph'),
+    'pyqtgraph.opengl',
+    'OpenGL',
+    'OpenGL.GL',
 
     # --- scipy (I_min_max uses scipy.signal.find_peaks; stat plots use interpolate) ---
     'scipy',
@@ -149,10 +151,6 @@ excludes = [
     'PyQt6.QtSql',
     'PyQt6.QtXml',
     'PyQt6.QtDBus',
-    'OpenGL',
-    'OpenGL.GL',
-    'OpenGL.GLUT',
-    'pyqtgraph.opengl',
     'tkinter',
     'PySide6',
     'PySide2',
