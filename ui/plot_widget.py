@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QVBoxLayout, QWidget, QLabel
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
@@ -26,6 +26,207 @@ COLORS_2D = {
     2: (255, 77, 77),
 }
 NAMES = ['A', 'B', 'C']
+
+HAS_OPENGL = False
+try:
+    from pyqtgraph.opengl import (
+        GLViewWidget,
+        GLLinePlotItem,
+        GLScatterPlotItem,
+        GLGridItem,
+        GLAxisItem,
+    )
+    HAS_OPENGL = True
+except Exception:
+    HAS_OPENGL = False
+
+
+def _positions_relative_to_cm_ab(positions: np.ndarray,
+                                 masses: np.ndarray) -> np.ndarray:
+    """Body positions shifted so CM(A, B) is the origin at every time step."""
+    mA, mB = masses[0], masses[1]
+    r_cm_ab = (mA * positions[:, 0, :] + mB * positions[:, 1, :]) / (mA + mB)
+    return positions - r_cm_ab[:, None, :]
+
+
+def _densify_positions_for_display(times: np.ndarray, pos: np.ndarray,
+                                   factor: int = 8,
+                                   max_points: int = 120_000) -> np.ndarray:
+    """
+    Cubic-spline interpolation in time, purely to render a smooth curve.
+
+    An adaptive integrator (e.g. IAS15) only takes as many real steps as its
+    own error control needs, so raising Output Points beyond that count adds
+    no new integrated data — the recorded trajectory stays exactly as coarse.
+    This interpolates between the existing samples for display only; it does
+    not add or alter any physics.
+    """
+    n = times.shape[0]
+    if n < 4:
+        return pos
+    # Drop non-increasing timestamps (can happen at floating-point ties).
+    keep = np.concatenate(([True], np.diff(times) > 0))
+    times, pos = times[keep], pos[keep]
+    n = times.shape[0]
+    if n < 4:
+        return pos
+
+    target = min(max(n * factor, n), max_points)
+    if target <= n:
+        return pos
+
+    from scipy.interpolate import CubicSpline
+
+    dense_t = np.linspace(times[0], times[-1], target)
+    dense_pos = np.empty((target,) + pos.shape[1:], dtype=float)
+    for body in range(pos.shape[1]):
+        for axis in range(pos.shape[2]):
+            spline = CubicSpline(times, pos[:, body, axis])
+            dense_pos[:, body, axis] = spline(dense_t)
+    return dense_pos
+
+
+def _nice_grid_step(half_extent: float) -> float:
+    """Round half_extent/10 to a 1/2/5 * 10^n step, for ~10 grid divisions."""
+    if half_extent <= 0 or not np.isfinite(half_extent):
+        return 1.0
+    raw_step = half_extent / 5.0
+    exponent = np.floor(np.log10(raw_step))
+    fraction = raw_step / (10 ** exponent)
+    if fraction < 1.5:
+        nice_fraction = 1.0
+    elif fraction < 3.0:
+        nice_fraction = 2.0
+    elif fraction < 7.0:
+        nice_fraction = 5.0
+    else:
+        nice_fraction = 10.0
+    return float(nice_fraction * (10 ** exponent))
+
+
+if HAS_OPENGL:
+
+    class TrajectoryGL3DWidget(GLViewWidget):
+        """pyqtgraph OpenGL 3D trajectories, plotted relative to CM(A, B)."""
+
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setCameraPosition(distance=40, elevation=25, azimuth=45)
+            self.opts['bgcolor'] = (0.05, 0.05, 0.08, 1.0)
+            self._lines = []
+            self._points = []
+
+            # Scale reference: grid in the xy-plane through CM(AB) plus axes.
+            self._grid = GLGridItem()
+            self._grid.setColor((150, 150, 150, 80))
+            self.addItem(self._grid)
+            self._axis = GLAxisItem()
+            self.addItem(self._axis)
+
+            # Grid step readout, since GLGridItem draws no tick labels.
+            self._scale_label = QLabel(self)
+            self._scale_label.setStyleSheet(
+                "color: #e5e7eb; background-color: rgba(13, 13, 18, 170);"
+                "padding: 2px 6px; border-radius: 3px; font-size: 11px;"
+            )
+            self._scale_label.move(8, 8)
+
+        def clear_plots(self):
+            for item in self._lines + self._points:
+                self.removeItem(item)
+            self._lines.clear()
+            self._points.clear()
+
+        def wheelEvent(self, ev):
+            super().wheelEvent(ev)
+            self._rescale_grid_to_view()
+
+        def _rescale_grid_to_view(self):
+            # Camera distance is the only zoom proxy pyqtgraph exposes here,
+            # so re-derive the grid step from it whenever the view zooms.
+            distance = float(self.opts.get('distance', 40.0))
+            step = _nice_grid_step(distance)
+            size = step * np.ceil(distance * 2.5 / step)
+            self._grid.setSpacing(step, step, step)
+            self._grid.setSize(size, size, size)
+            self._axis.setSize(size / 2.0, size / 2.0, size / 2.0)
+            self._scale_label.setText(f"Grid step: {step:g} AU")
+            self._scale_label.adjustSize()
+
+        def plot_trajectories(self, positions: np.ndarray, masses: np.ndarray,
+                              stride: int = 1, times: np.ndarray = None):
+            self.clear_plots()
+            if positions.size == 0:
+                return
+            pos = _positions_relative_to_cm_ab(positions[::stride], masses)
+
+            pos_line = pos
+            if times is not None:
+                pos_line = _densify_positions_for_display(
+                    np.asarray(times[::stride], dtype=float), pos
+                )
+
+            finite = pos[np.isfinite(pos)]
+            half_extent = float(np.max(np.abs(finite))) if finite.size else 1.0
+            half_extent = max(half_extent, 1e-6)
+            self.setCameraPosition(distance=half_extent * 2.5)
+            self._rescale_grid_to_view()
+
+            for i in range(3):
+                pts = pos_line[:, i, :]
+                line = GLLinePlotItem(pos=pts,
+                                      color=COLORS_GL[i],
+                                      width=1.5,
+                                      antialias=True)
+                self.addItem(line)
+                self._lines.append(line)
+                scatter = GLScatterPlotItem(pos=pts[-1:],
+                                            color=COLORS_GL[i],
+                                            size=8)
+                self.addItem(scatter)
+                self._points.append(scatter)
+            origin = GLScatterPlotItem(
+                pos=np.array([[0., 0., 0.]]),
+                color=(0.7, 0.7, 0.7, 1.0), size=5
+            )
+            self.addItem(origin)
+            self._points.append(origin)
+
+else:
+
+    class TrajectoryGL3DWidget(pg.GraphicsLayoutWidget):
+        """Fallback 2D projection (relative to CM(A, B)) when OpenGL is unavailable."""
+
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setBackground('#0d0d12')
+            self._plot = self.addPlot(
+                title="XY projection, CM(AB) frame (OpenGL unavailable)"
+            )
+            self._plot.setLabel('bottom', 'x', units='AU')
+            self._plot.setLabel('left', 'y', units='AU')
+            self._plot.showGrid(x=True, y=True, alpha=0.4)
+            self._plot.setAspectLocked(True)
+            self._plot.addLegend()
+
+        def clear_plots(self):
+            self._plot.clear()
+
+        def plot_trajectories(self, positions: np.ndarray, masses: np.ndarray,
+                              stride: int = 1, times: np.ndarray = None):
+            self.clear_plots()
+            if positions.size == 0:
+                return
+            pos = _positions_relative_to_cm_ab(positions[::stride], masses)
+            if times is not None:
+                pos = _densify_positions_for_display(
+                    np.asarray(times[::stride], dtype=float), pos
+                )
+            for i, name in enumerate(NAMES):
+                self._plot.plot(
+                    pos[:, i, 0], pos[:, i, 1],
+                    pen=pg.mkPen(COLORS_2D[i], width=1.5), name=name
+                )
 
 
 class Trajectory3DWidget(QWidget):

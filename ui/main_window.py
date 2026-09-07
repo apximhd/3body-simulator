@@ -20,7 +20,7 @@ from PyQt6.QtGui import QAction, QFont, QColor
 
 from .parameter_widget import ParameterWidget
 from .statistic_parameter_widget import StatisticParameterWidget
-from .plot_widget import Trajectory3DWidget, Plot2DWidget
+from .plot_widget import Trajectory3DWidget, TrajectoryGL3DWidget, Plot2DWidget
 from .stat_plot_widget import StatPlotWidget, build_stat_arrays
 from core.config import load_config, save_config, get_default_params
 from core.simulation import run_simulation, SimulationResult
@@ -423,6 +423,9 @@ class MainWindow(QMainWindow):
 
         self.view3d = Trajectory3DWidget()
         right.addTab(self.view3d, "3D trajectories")
+
+        self.view3d_gl = TrajectoryGL3DWidget()
+        right.addTab(self.view3d_gl, "3D trajectories (CM AB, pyqtgraph)")
 
         self.plot_energy = Plot2DWidget()
         right.addTab(self.plot_energy, "Total Energy check")
@@ -989,6 +992,13 @@ class MainWindow(QMainWindow):
         self.plot_sma.plot_semimajor(result.t, result.elements)
         self.plot_inc.plot_inclinations(result.t, result.elements)
         self.view3d.plot_trajectories(result.positions, stride=stride)
+        # OpenGL renders far more line vertices than matplotlib without
+        # slowing down, so let this plot use (almost) the full resolution
+        # instead of inheriting matplotlib's tighter point cap.
+        stride_gl = max(1, result.n_steps // 200000)
+        self.view3d_gl.plot_trajectories(
+            result.positions, result.masses, stride=stride_gl, times=result.t
+        )
         self.plot_phase.plot_cos_i_vs_e(result.elements, stride=stride)
         self.plot_energy.plot_energy(result.t, result.energy)
 

@@ -48,8 +48,8 @@ def total_energy(pos: np.ndarray, vel: np.ndarray, masses: np.ndarray) -> float:
 
 
 def run_rebound(positions, velocities, masses, t_max, integrator='ias15',
-               dt=1e-3, n_output=2000, progress_cb: ProgressCallback = None,
-               monitor_outer_orbit: bool = False, t_delay: float = 0.0):
+                dt=1e-3, n_output=2000, progress_cb: ProgressCallback = None,
+                monitor_outer_orbit: bool = False, t_delay: float = 0.0):
     if not HAS_REBOUND:
         raise RuntimeError("REBOUND is not installed")
 
@@ -118,7 +118,7 @@ def run_rebound(positions, velocities, masses, t_max, integrator='ias15',
     # system — depend on t_max and n_output.
     callback = rebound.simulation.AFF(sample)
     sim._heartbeat = callback           # keep `callback` alive while sim exists
-      
+
     while sim.t < t_max:
         candidate_instability_time[0] = None
         sim.integrate(t_max, exact_finish_time=0)
@@ -173,8 +173,7 @@ def run_simulation(params: dict,
         initial_elements = get_elements(pos0, vel0, masses)
         monitor_outer_orbit = (
             stop_on_instability
-            and
-            initial_elements["e_out"] < 1.0
+            and initial_elements["e_out"] < 1.0
             and initial_elements["a_out"] > 0.0
         )
 
