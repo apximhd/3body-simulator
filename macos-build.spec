@@ -1,12 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_dynamic_libs,
+    collect_submodules,
+)
 
 
 datas = [('configs', 'configs')]
 binaries = []
-hiddenimports = ['rebound']
+hiddenimports = [
+    'rebound',
+    'pyqtgraph.opengl',
+    'OpenGL',
+    'OpenGL.GL',
+    'OpenGL.error',
+]
+hiddenimports += collect_submodules('pyqtgraph.opengl')
+hiddenimports += collect_submodules('OpenGL')
 
 # REBOUND loads librebound dynamically from its site-packages directory.
 rebound_data, rebound_binaries, rebound_hiddenimports = collect_all('rebound')
