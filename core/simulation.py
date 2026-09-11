@@ -213,7 +213,7 @@ def run_simulation(params: dict,
                 instability_years = instability_time / YEAR
                 n_out = instability_years / period_years
                 stability_message = (
-                    f"Brake at: {instability_years:.1f} years ({n_out:.0f} revs)"
+                    f"Break at: {instability_years:.1f} years ({n_out:.0f} revs)"
                 )
         else:
             stability_message = "N/A (e_out >= 1 initially)"

@@ -248,7 +248,7 @@ class StatPlotWidget(QWidget):
             else:
                 cmap_name = "viridis"
                 norm = None
-            
+
             surf = ax.plot_surface(
                 X, Y, z_plot,
                 cmap=cmap_name,
@@ -344,7 +344,7 @@ class StatPlotWidget(QWidget):
             else:
                 cmap_name = "viridis"
                 norm = None
-            
+
             s1 = ax.plot_surface(
                 X, Y, Z1p, cmap=cmap_name, norm=norm, alpha=0.85,
                 edgecolor="none", linewidth=0, antialiased=True,
@@ -392,6 +392,20 @@ def build_stat_arrays(
     if not valid or not scanned_keys:
         return None, None
 
+    def is_internal_breakup(row: dict) -> bool:
+        if "internal_breakup" in row:
+            return bool(row["internal_breakup"])
+        return str(row.get("stability_status", "")).startswith(
+            "Total break at:"
+        )
+
+    usable = [
+        r for r in valid
+        if r.get("success", True) and not is_internal_breakup(r)
+    ]
+    if not usable:
+        return None, None
+
     def _qty(r: dict) -> float:
         return float(r.get(quantity, np.nan))
 
@@ -407,27 +421,63 @@ def build_stat_arrays(
     if len(scanned_keys) == 1:
         key = scanned_keys[0]
         # sort by parameter value to be safe
-        ordered = sorted(valid, key=lambda r: float(r.get(key, 0.0)))
+        ordered = sorted(
+            valid if quantity == "delta_e" else usable,
+            key=lambda r: float(r.get(key, 0.0)),
+        )
         x = np.array([float(r[key]) for r in ordered], dtype=float)
         y = np.array([_qty(r) for r in ordered], dtype=float)
+        if quantity == "delta_e":
+            good_indices = [
+                i for i, row in enumerate(ordered)
+                if row.get("success", True) and not is_internal_breakup(row)
+            ]
+            for i, row in enumerate(ordered):
+                if i in good_indices:
+                    continue
+                neighbors = [j for j in good_indices if j < i], [
+                    j for j in good_indices if j > i
+                ]
+                values = []
+                if neighbors[0]:
+                    values.append(y[neighbors[0][-1]])
+                if neighbors[1]:
+                    values.append(y[neighbors[1][0]])
+                y[i] = float(np.mean(values)) if values else np.nan
         return "1d", (x, y, key, ylabel)
 
     if len(scanned_keys) >= 2:
         k0, k1 = scanned_keys[0], scanned_keys[1]
         # unique sorted axes
-        x_vals = sorted({float(r[k0]) for r in valid})
-        y_vals = sorted({float(r[k1]) for r in valid})
+        source_rows = valid if quantity == "delta_e" else usable
+        x_vals = sorted({float(r[k0]) for r in source_rows})
+        y_vals = sorted({float(r[k1]) for r in source_rows})
         x = np.array(x_vals, dtype=float)
         y = np.array(y_vals, dtype=float)
         # map (x,y) → value
         lookup = {
             (float(r[k0]), float(r[k1])): _qty(r)
-            for r in valid
+            for r in source_rows
         }
         Z = np.full((len(x), len(y)), np.nan, dtype=float)
         for i, xv in enumerate(x):
             for j, yv in enumerate(y):
                 Z[i, j] = lookup.get((float(xv), float(yv)), np.nan)
+        if quantity == "delta_e":
+            bad_points = {
+                (float(r[k0]), float(r[k1]))
+                for r in valid if is_internal_breakup(r) or not r.get("success", True)
+            }
+            for i, xv in enumerate(x):
+                for j, yv in enumerate(y):
+                    if (float(xv), float(yv)) not in bad_points:
+                        continue
+                    neighbors = []
+                    for ni, nj in ((i - 1, j), (i + 1, j), (i, j - 1), (i, j + 1)):
+                        if 0 <= ni < len(x) and 0 <= nj < len(y) and np.isfinite(Z[ni, nj]):
+                            neighbors.append(Z[ni, nj])
+                    if neighbors:
+                        Z[i, j] = float(np.mean(neighbors))
         return "2d", (x, y, Z, k0, k1, ylabel)
 
     return None, None

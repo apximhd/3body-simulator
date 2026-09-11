@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Sequence
 
+import numpy as np
+
 from .simulation import run_simulation
 from .elements import (
     moment_of_inertia,
@@ -19,6 +21,24 @@ from .elements import (
     sundman_ratio,
     delta_e_predicted,
 )
+from .constants import YEAR
+
+
+def _internal_breakup(result, params: Dict[str, Any]) -> tuple[bool, float | None]:
+    """Return whether the final inner AB eccentricity crossed one and when."""
+    e_in = np.asarray(result.elements.get("e_in", []), dtype=float)
+    times = np.asarray(result.t, dtype=float)
+    if e_in.size == 0 or times.size != e_in.size:
+        return False, None
+
+    threshold = 1.0 - float(params["e_AB"])
+    delta_e = e_in - e_in[0]
+    if not np.isfinite(delta_e[-1]) or delta_e[-1] <= threshold:
+        return False, None
+    crossed = np.flatnonzero(delta_e > threshold)
+    if crossed.size == 0:
+        return False, None
+    return True, float(times[int(crossed[0])])
 
 
 def extract_stat_row(
@@ -52,6 +72,24 @@ def extract_stat_row(
     e_in = result.elements["e_in"]
     de = float(e_in[-1] - e_in[0])
     de_pred = delta_e_predicted(params)
+    internal_breakup, internal_breakup_time = _internal_breakup(result, params)
+    stability_status = result.message
+    if internal_breakup:
+        breakup_years = internal_breakup_time / YEAR
+        outer_a_initial = float(result.elements["a_out"][0])
+        outer_period = np.sqrt(
+            outer_a_initial ** 3
+            / (
+                float(params["mass_A"])
+                + float(params["mass_B"])
+                + float(params["mass_C"])
+            )
+        )
+        breakup_revs = breakup_years / outer_period
+        stability_status = (
+            f"Total break at: {breakup_years:.1f} years "
+            f"({breakup_revs:.0f} revs)"
+        )
 
     row.update({
         "Imax": Imax,
@@ -62,7 +100,8 @@ def extract_stat_row(
         "e_out_last": float(result.elements["e_out"][-1]),
         "a_out_last": float(result.elements["a_out"][-1]),
         "a_in_ratio": float(result.elements["a_in"][-1]) / float(params["a_AB"]),
-        "stability_status": result.message,
+        "stability_status": stability_status,
+        "internal_breakup": internal_breakup,
         "success": True,
         "message": "OK",
     })

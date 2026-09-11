@@ -830,7 +830,7 @@ class MainWindow(QMainWindow):
         max_workers = default_max_workers(max_workers)
 
         result_cols = [
-            "Imax", "Imin", "R", "delta_e", "delta_e_pred",
+            "Imax", "Imin", "R", "delta_e",  # "delta_e_pred",
             "e_out_last", "a_out_last", "a_in_ratio", "stability_status",
         ]
         headers = list(scanned) + result_cols
@@ -899,7 +899,7 @@ class MainWindow(QMainWindow):
         self._stat_rows[idx] = row
 
         result_keys = {
-            "Imax", "Imin", "R", "delta_e", "delta_e_pred",
+            "Imax", "Imin", "R", "delta_e",  # "delta_e_pred",
             "e_out_last", "a_out_last", "a_in_ratio", "stability_status",
         }
         for c, key in enumerate(self._stat_headers):
@@ -916,8 +916,15 @@ class MainWindow(QMainWindow):
             else:
                 text = str(val)
             item = QTableWidgetItem(text)
-            if not row.get("success", True):
+            status = str(row.get("stability_status", ""))
+            if (
+                not row.get("success", True)
+                or row.get("internal_breakup", False)
+                or status.startswith(("Total brake at:", "Total break at:"))
+            ):
                 item.setForeground(QColor("#c62828"))
+            elif status.startswith("Stable at"):
+                item.setForeground(QColor("#2e7d32"))
             self.stat_table.setItem(idx, c, item)
 
         self.resize(locked)
@@ -1041,22 +1048,29 @@ class MainWindow(QMainWindow):
                 plot.plot_2d_surface(x, y, Z, xlabel, ylabel, zlabel)
 
         # Combined Δe: simulated vs predicted
+        # NOTE: Temporarily hide the theoretically predicted surface/curve
+        # by commenting out the plotting of the prediction. Do not remove
+        # the original code permanently — it's kept below as comments.
         kind_s, data_s = build_stat_arrays(rows, scanned, "delta_e")
         kind_p, data_p = build_stat_arrays(rows, scanned, "delta_e_pred")
-        if kind_s == "1d" and data_s is not None and data_p is not None:
+        if kind_s == "1d" and data_s is not None:
             x, y_s, xlabel, _ = data_s
-            y_p = data_p[1]
-            self.stat_plot_de.plot_1d_overlay(
-                x, y_s, y_p, xlabel,
-                "Δe (sim)", "Δe (pred)",
-            )
-        elif kind_s == "2d" and data_s is not None and data_p is not None:
+            # y_p = data_p[1]
+            # self.stat_plot_de.plot_1d_overlay(
+            #     x, y_s, y_p, xlabel,
+            #     "Δe (sim)", "Δe (pred)",
+            # )
+            # Plot only the simulated Δe for now
+            self.stat_plot_de.plot_1d(x, y_s, xlabel, "Δe (sim)")
+        elif kind_s == "2d" and data_s is not None:
             x, y, Z_s, xlabel, ylabel, _ = data_s
-            Z_p = data_p[2]
-            self.stat_plot_de.plot_2d_overlay(
-                x, y, Z_s, Z_p, xlabel, ylabel,
-                "Δe (sim)", "Δe (pred)",
-            )
+            # Z_p = data_p[2]
+            # self.stat_plot_de.plot_2d_overlay(
+            #     x, y, Z_s, Z_p, xlabel, ylabel,
+            #     "Δe (sim)", "Δe (pred)",
+            # )
+            # Plot only the simulated Δe surface for now
+            self.stat_plot_de.plot_2d_surface(x, y, Z_s, xlabel, ylabel, "Δe (sim)")
         else:
             self.stat_plot_de.clear()
 
@@ -1075,6 +1089,14 @@ class MainWindow(QMainWindow):
         if not np.isfinite(v):
             return "—"
         return f"{v:.6g}"
+
+    @staticmethod
+    def _is_internal_breakup(row: dict) -> bool:
+        if "internal_breakup" in row:
+            return bool(row["internal_breakup"])
+        return str(row.get("stability_status", "")).startswith(
+            "Total break at:"
+        )
 
     def _build_stat_summary_html(self, rows: list | None) -> str:
         fmt = self._fmt_num
@@ -1127,7 +1149,11 @@ class MainWindow(QMainWindow):
         def column(key: str) -> np.ndarray:
             vals = []
             for r in rows or []:
-                if not r or not r.get("success", True):
+                if (
+                    not r
+                    or not r.get("success", True)
+                    or self._is_internal_breakup(r)
+                ):
                     continue
                 try:
                     v = float(r.get(key))
@@ -1144,10 +1170,13 @@ class MainWindow(QMainWindow):
         else:
             R = column("R")
             de = column("delta_e")
-            dep = column("delta_e_pred")
-            n_ok = sum(1 for r in rows if r and r.get("success", True))
+            # dep = column("delta_e_pred")
+            n_ok = sum(
+                1 for r in rows
+                if r and r.get("success", True) and not self._is_internal_breakup(r)
+            )
 
-            if R.size == 0 and de.size == 0 and dep.size == 0:
+            if R.size == 0 and de.size == 0:  # and dep.size == 0:
                 parts.append("<p><i>No successful runs to summarise.</i></p>")
             else:
                 def stat_row(
@@ -1200,11 +1229,12 @@ class MainWindow(QMainWindow):
                         include_std=True,
                     )
                 )
-                parts.append(
-                    stat_row(
-                        "&Delta;e<sub>in</sub> (predicted)", dep, cumulative=True
-                    )
-                )
+                # Temporarily hide predicted Δe from the summary table.
+                # parts.append(
+                #     stat_row(
+                #         "&Delta;e<sub>in</sub> (predicted)", dep, cumulative=True
+                #     )
+                # )
                 parts.append("</table>")
 
                 total = len(rows)
@@ -1236,7 +1266,7 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ import / export
     _RESULT_COLS = (
-        "Imax", "Imin", "R", "delta_e", "delta_e_pred",
+        "Imax", "Imin", "R", "delta_e",  # "delta_e_pred",
         "e_out_last", "a_out_last", "a_in_ratio", "stability_status",
     )
 
@@ -1293,11 +1323,17 @@ class MainWindow(QMainWindow):
         for i, raw in enumerate(raw_rows):
             row = {}
             for c in headers:
-                row[c] = _to_float(raw.get(c, ""))
+                if c == "stability_status":
+                    row[c] = raw.get(c, "")
+                else:
+                    row[c] = _to_float(raw.get(c, ""))
             for c in scanned:
                 row[c] = _to_float(raw.get(c, ""), default=0.0)
             row["success"] = True
             row["message"] = "imported"
+            row["internal_breakup"] = str(
+                row.get("stability_status", "")
+            ).startswith("Total break at:")
             row["_index"] = i
             rows.append(row)
 
@@ -1332,7 +1368,12 @@ class MainWindow(QMainWindow):
                         text = f"{val:.1f}"
                 else:
                     text = str(val)
-                self.stat_table.setItem(r_idx, c, QTableWidgetItem(text))
+                item = QTableWidgetItem(text)
+                if self._is_internal_breakup(row):
+                    item.setForeground(QColor("#c62828"))
+                elif str(row.get("stability_status", "")).startswith("Stable at"):
+                    item.setForeground(QColor("#2e7d32"))
+                self.stat_table.setItem(r_idx, c, item)
 
         self._update_stat_plots(rows)
         self._stat_summary_rows = rows

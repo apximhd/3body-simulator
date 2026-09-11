@@ -28,6 +28,7 @@ COLORS_2D = {
 }
 NAMES = ['A', 'B', 'C']
 
+
 def _has_usable_opengl() -> bool:
     """Return whether this process can create and use a basic GL context."""
     format_ = QSurfaceFormat()
