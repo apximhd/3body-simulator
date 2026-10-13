@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtCore import QLocale, Qt, pyqtSignal
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, Iterator, List, Tuple
 import itertools
 import numpy as np
 
@@ -364,21 +364,22 @@ class StatisticParameterWidget(QWidget):
             specs.append((key, vals))
         return specs
 
-    def iter_param_sets(self) -> List[Dict[str, float]]:
+    def iter_param_sets(self) -> Iterator[Dict[str, float]]:
         base = self.get_base_params()
         scan = self.get_scan_spec()
         if not scan:
-            return [base]
+            return iter((base,))
 
         keys = [k for k, _ in scan]
-        value_lists = [v.tolist() for _, v in scan]
-        result = []
-        for combo in itertools.product(*value_lists):
-            p = base.copy()
-            for k, v in zip(keys, combo):
-                p[k] = float(v)
-            result.append(p)
-        return result
+
+        def generate():
+            for combo in itertools.product(*(values for _, values in scan)):
+                params = base.copy()
+                for key, value in zip(keys, combo):
+                    params[key] = float(value)
+                yield params
+
+        return generate()
 
     def scanned_keys(self) -> List[str]:
         # only keys that actually have a valid scan range

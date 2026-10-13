@@ -11,11 +11,13 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QPushButton, QComboBox, QLineEdit, QRadioButton, QButtonGroup,
     QGroupBox, QFormLayout, QFileDialog, QMessageBox, QStatusBar,
-    QProgressBar, QTabWidget, QTextEdit, QLabel, QTableWidget,
-    QTableWidgetItem, QHeaderView, QAbstractItemView, QStackedWidget,
+    QProgressBar, QTabWidget, QTextEdit, QLabel, QTableView,
+    QHeaderView, QAbstractItemView, QStackedWidget,
     QSizePolicy
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import (
+    Qt, QThread, pyqtSignal, QAbstractTableModel, QModelIndex
+)
 from PyQt6.QtGui import QAction, QFont, QColor
 
 from .parameter_widget import ParameterWidget
@@ -28,7 +30,92 @@ from core.batch import run_stat_task, default_max_workers
 import csv
 import multiprocessing as mp
 import numpy as np
-from concurrent.futures import ProcessPoolExecutor, as_completed, wait, FIRST_COMPLETED
+from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
+
+
+class StatisticTableModel(QAbstractTableModel):
+    """On-demand display for statistic rows without allocating per-cell items."""
+
+    _RESULT_KEYS = {
+        "Imax", "Imin", "R", "delta_e",
+        "e_out_last", "a_out_last", "a_in_ratio", "stability_status",
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.headers: list[str] = []
+        self.display_headers: list[str] = []
+        self.rows: list[dict | None] = []
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.rows)
+
+    def columnCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.headers)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        row = self.rows[index.row()]
+        if row is None:
+            return None
+
+        status = str(row.get("stability_status", ""))
+        if role == Qt.ItemDataRole.ForegroundRole:
+            if (
+                not row.get("success", True)
+                or row.get("internal_breakup", False)
+                or status.startswith(("Total brake at:", "Total break at:"))
+            ):
+                return QColor("#c62828")
+            if status.startswith("Stable at"):
+                return QColor("#2e7d32")
+            return None
+
+        if role != Qt.ItemDataRole.DisplayRole:
+            return None
+        key = self.headers[index.column()]
+        value = row.get(key, "")
+        if isinstance(value, float):
+            if index.column() < 2 and key in {"e_AB", "e_AC", "a_AB", "Q"}:
+                return f"{value:.3f}"
+            if key == "a_in_ratio":
+                return f"{value:.5f}"
+            if key in self._RESULT_KEYS:
+                return f"{value:.8f}"
+            return f"{value:.1f}"
+        return str(value)
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if role != Qt.ItemDataRole.DisplayRole:
+            return None
+        if orientation == Qt.Orientation.Horizontal:
+            return (
+                self.display_headers[section]
+                if section < len(self.display_headers) else None
+            )
+        return str(section + 1)
+
+    def set_data(
+        self,
+        headers: list[str],
+        rows: list[dict | None],
+        display_headers: list[str] | None = None,
+    ):
+        self.beginResetModel()
+        self.headers = headers
+        self.display_headers = display_headers or headers
+        self.rows = rows
+        self.endResetModel()
+
+    def notify_row_changed(self, row: int):
+        if 0 <= row < len(self.rows) and self.headers:
+            first = self.index(row, 0)
+            last = self.index(row, len(self.headers) - 1)
+            self.dataChanged.emit(
+                first, last,
+                [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ForegroundRole],
+            )
 
 
 class SimulationWorker(QThread):
@@ -77,13 +164,16 @@ class StatisticWorker(QThread):
     row_ready = pyqtSignal(dict)
 
     def __init__(self, param_sets, scanned_keys, integrator, dt, n_output,
-                 max_workers: int = 0):
+                 total_count, t_max, t_delay, max_workers: int = 0):
         super().__init__()
         self.param_sets = param_sets
         self.scanned_keys = list(scanned_keys)
         self.integrator = integrator
         self.dt = dt
         self.n_output = n_output
+        self.total_count = total_count
+        self.t_max = t_max
+        self.t_delay = t_delay
         self.max_workers = default_max_workers(max_workers)
         self._stop = False
         self._executor: ProcessPoolExecutor | None = None
@@ -99,23 +189,13 @@ class StatisticWorker(QThread):
                 self._executor.shutdown(wait=False)
 
     def run(self):
-        n = len(self.param_sets)
+        n = self.total_count
         if n == 0:
             self.finished.emit([])
             return
 
-        tasks = []
-        for i, params in enumerate(self.param_sets):
-            tasks.append({
-                "params": params,
-                "scanned_keys": self.scanned_keys,
-                "integrator": self.integrator,
-                "dt": self.dt,
-                "n_output": self.n_output,
-                "index": i,
-            })
-
         workers = min(self.max_workers, n)
+        max_in_flight = max(1, workers * 2)
         self.progress.emit(
             0.0,
             f"Starting {n} run(s) on {workers} worker(s)…"
@@ -125,6 +205,10 @@ class StatisticWorker(QThread):
         ctx = mp.get_context("spawn")
         rows_by_index: dict[int, dict] = {}
         done_count = 0
+        progress_step = max(1, n // 100)
+        param_iter = iter(self.param_sets)
+        next_index = 0
+        exhausted = False
 
         try:
             with ProcessPoolExecutor(
@@ -132,31 +216,47 @@ class StatisticWorker(QThread):
                 mp_context=ctx,
             ) as executor:
                 self._executor = executor
-                future_map = {
-                    executor.submit(run_stat_task, task): task["index"]
-                    for task in tasks
-                }
-
-                pending = set(future_map.keys())
-                while pending:
+                pending = {}
+                while pending or not exhausted:
                     if self._stop:
                         for f in pending:
                             f.cancel()
                         break
 
-                    finished, pending = wait(
+                    while len(pending) < max_in_flight and not exhausted:
+                        try:
+                            params = next(param_iter)
+                        except StopIteration:
+                            exhausted = True
+                            break
+                        params["t_max"] = self.t_max
+                        params["t_delay"] = self.t_delay
+                        task = {
+                            "params": params,
+                            "scanned_keys": self.scanned_keys,
+                            "integrator": self.integrator,
+                            "dt": self.dt,
+                            "n_output": self.n_output,
+                            "index": next_index,
+                        }
+                        future = executor.submit(run_stat_task, task)
+                        pending[future] = (next_index, params)
+                        next_index += 1
+
+                    if not pending:
+                        continue
+                    finished, _ = wait(
                         pending, timeout=0.2, return_when=FIRST_COMPLETED
                     )
                     if not finished:
                         continue
 
                     for fut in finished:
-                        idx = future_map[fut]
+                        idx, params = pending.pop(fut)
                         try:
                             row = fut.result()
                         except Exception as exc:  # noqa: BLE001
                             # reconstruct a failure row
-                            params = self.param_sets[idx]
                             row = {k: params[k] for k in self.scanned_keys}
                             row.update({
                                 "Imax": float("nan"),
@@ -173,16 +273,17 @@ class StatisticWorker(QThread):
                         done_count += 1
                         self.row_ready.emit(row)
                         pct = 100.0 * done_count / n
-                        label = ", ".join(
-                            f"{k}={row.get(k, '?'):g}"
-                            if isinstance(row.get(k), (int, float))
-                            else f"{k}={row.get(k)}"
-                            for k in self.scanned_keys
-                        ) or f"#{idx}"
-                        self.progress.emit(
-                            pct,
-                            f"[{done_count}/{n}] {label}"
-                        )
+                        if done_count % progress_step == 0 or done_count == n:
+                            label = ", ".join(
+                                f"{k}={row.get(k, '?'):g}"
+                                if isinstance(row.get(k), (int, float))
+                                else f"{k}={row.get(k)}"
+                                for k in self.scanned_keys
+                            ) or f"#{idx}"
+                            self.progress.emit(
+                                pct,
+                                f"[{done_count}/{n}] {label}"
+                            )
 
             self._executor = None
 
@@ -556,7 +657,9 @@ class MainWindow(QMainWindow):
         )
         table_lay.addWidget(self.stat_info)
 
-        self.stat_table = QTableWidget()
+        self.stat_table = QTableView()
+        self.stat_table_model = StatisticTableModel(self.stat_table)
+        self.stat_table.setModel(self.stat_table_model)
         self.stat_table.setAlternatingRowColors(True)
         self.stat_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
@@ -797,10 +900,9 @@ class MainWindow(QMainWindow):
         param_sets = self.stat_param_widget.iter_param_sets()
         t_max = float(self.spin_tmax_s.text())
         t_delay = float(self.spin_tdelay_s.text())
-        for params in param_sets:
-            params["t_max"] = t_max
-            params["t_delay"] = t_delay
-        n = len(param_sets)
+        n = 1
+        for _, values in scan_spec:
+            n *= len(values)
 
         if n <= 1:
             QMessageBox.warning(
@@ -838,16 +940,17 @@ class MainWindow(QMainWindow):
         display_headers = [
             h.replace("a_in_ratio", "a_in_last/a_in_init") for h in headers
         ]
-        self.stat_table.clear()
-        self.stat_table.setColumnCount(len(headers))
-        self.stat_table.setHorizontalHeaderLabels(display_headers)
-        self.stat_table.horizontalHeader().setSectionResizeMode(
-            headers.index("stability_status"), QHeaderView.ResizeMode.ResizeToContents
+        self._stat_rows = [None] * n
+        self.stat_table_model.set_data(
+            headers, self._stat_rows, display_headers
         )
+        self.stat_table.horizontalHeader().setSectionResizeMode(
+            headers.index("stability_status"),
+            QHeaderView.ResizeMode.Interactive,
+        )
+        self.stat_table.setColumnWidth(headers.index("stability_status"), 240)
         # Pre-allocate rows in original cycle order; fill by _index as
         # parallel workers complete (so the table stays sorted).
-        self.stat_table.setRowCount(n)
-        self._stat_rows = [None] * n
         self._stat_headers = headers
         self._stat_scanned = list(scanned)
         self._stat_n = n
@@ -866,6 +969,7 @@ class MainWindow(QMainWindow):
 
         self._stat_worker = StatisticWorker(
             param_sets, scanned, integrator, dt, n_output,
+            total_count=n, t_max=t_max, t_delay=t_delay,
             max_workers=max_workers,
         )
         self._stat_worker.finished.connect(self.on_statistic_finished)
@@ -887,47 +991,19 @@ class MainWindow(QMainWindow):
         self.status.showMessage(msg)
 
     def on_stat_row(self, row: dict):
-        locked = self.size()
         # Place row at its original cycle index (not append order)
         idx = int(row.get("_index", -1))
         if idx < 0 or idx >= len(self._stat_rows):
-            idx = len([r for r in self._stat_rows if r is not None])
-            if idx >= self.stat_table.rowCount():
-                self.stat_table.setRowCount(idx + 1)
+            idx = next(
+                (i for i, existing in enumerate(self._stat_rows)
+                 if existing is None),
+                len(self._stat_rows),
+            )
+            if idx == len(self._stat_rows):
                 self._stat_rows.append(None)
 
         self._stat_rows[idx] = row
-
-        result_keys = {
-            "Imax", "Imin", "R", "delta_e",  # "delta_e_pred",
-            "e_out_last", "a_out_last", "a_in_ratio", "stability_status",
-        }
-        for c, key in enumerate(self._stat_headers):
-            val = row.get(key, "")
-            if isinstance(val, float):
-                if c < 2 and key in {"e_AB", "e_AC", "a_AB", "Q"}:
-                    text = f"{val:.3f}"
-                elif key == "a_in_ratio":
-                    text = f"{val:.5f}"
-                elif key in result_keys:
-                    text = f"{val:.8f}"
-                else:
-                    text = f"{val:.1f}"
-            else:
-                text = str(val)
-            item = QTableWidgetItem(text)
-            status = str(row.get("stability_status", ""))
-            if (
-                not row.get("success", True)
-                or row.get("internal_breakup", False)
-                or status.startswith(("Total brake at:", "Total break at:"))
-            ):
-                item.setForeground(QColor("#c62828"))
-            elif status.startswith("Stable at"):
-                item.setForeground(QColor("#2e7d32"))
-            self.stat_table.setItem(idx, c, item)
-
-        self.resize(locked)
+        self.stat_table_model.notify_row_changed(idx)
 
     def stop_simulation(self):
         if self._worker and self._worker.isRunning():
@@ -1341,39 +1417,19 @@ class MainWindow(QMainWindow):
         if self.mode != "statistic":
             self._set_mode("statistic")
 
-        self.stat_table.clear()
-        self.stat_table.setColumnCount(len(headers))
-        self.stat_table.setHorizontalHeaderLabels(headers)
+        self.stat_table_model.set_data(headers, rows)
         if "stability_status" in headers:
             self.stat_table.horizontalHeader().setSectionResizeMode(
                 headers.index("stability_status"),
-                QHeaderView.ResizeMode.ResizeToContents,
+                QHeaderView.ResizeMode.Interactive,
             )
-        self.stat_table.setRowCount(len(rows))
+            self.stat_table.setColumnWidth(
+                headers.index("stability_status"), 240
+            )
         self._stat_headers = headers
         self._stat_scanned = scanned
         self._stat_rows = rows
         self._stat_n = len(rows)
-
-        result_keys = set(self._RESULT_COLS)
-        for r_idx, row in enumerate(rows):
-            for c, key in enumerate(headers):
-                val = row.get(key, "")
-                if isinstance(val, float):
-                    if c < 2 and key in {"e_AB", "e_AC", "a_AB"}:
-                        text = f"{val:.3f}"
-                    elif key in result_keys:
-                        text = f"{val:.8f}"
-                    else:
-                        text = f"{val:.1f}"
-                else:
-                    text = str(val)
-                item = QTableWidgetItem(text)
-                if self._is_internal_breakup(row):
-                    item.setForeground(QColor("#c62828"))
-                elif str(row.get("stability_status", "")).startswith("Stable at"):
-                    item.setForeground(QColor("#2e7d32"))
-                self.stat_table.setItem(r_idx, c, item)
 
         self._update_stat_plots(rows)
         self._stat_summary_rows = rows
