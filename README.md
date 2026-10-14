@@ -35,11 +35,26 @@ pip install -r requirements.txt
 python main.py
 ```
 
+### Histogram of statistic results
+
+Plot a histogram of the `delta_e` column from an exported CSV:
+
+```bash
+python diagram.py "results.csv"
+python diagram.py "results.csv" --bins 100 --output histogram.png
+```
+
+By default, the histogram opens in a window with 50 bins. `--output` saves
+an image without opening a window. Empty and non-finite values (`nan`, `inf`)
+are skipped with a warning; missing columns and invalid numbers report an error.
+Only the `delta_e` values are retained in memory, not the entire CSV table.
+
 ## Structure
 
 ```
 3body_simulator/
 ├── main.py                 # entry point
+├── diagram.py              # delta_e histogram from a statistic CSV
 ├── core/
 │   ├── constants.py        # unit definitions
 │   ├── kepler.py           # elements → Cartesian coordinates
