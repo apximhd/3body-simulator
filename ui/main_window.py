@@ -33,7 +33,17 @@ from core.batch import run_stat_task, default_max_workers
 import csv
 import multiprocessing as mp
 import numpy as np
+import time
 from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
+
+
+def _format_duration(seconds: float) -> str:
+    total_seconds = max(0, int(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
 
 
 class StatisticTableModel(QAbstractTableModel):
@@ -163,7 +173,7 @@ class StatisticWorker(QThread):
     """
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
-    progress = pyqtSignal(float, str)
+    progress = pyqtSignal(float, int, int, str)
     row_ready = pyqtSignal(dict)
 
     def __init__(self, param_sets, scanned_keys, integrator, dt, n_output,
@@ -200,7 +210,7 @@ class StatisticWorker(QThread):
         workers = min(self.max_workers, n)
         max_in_flight = max(1, workers * 2)
         self.progress.emit(
-            0.0,
+            0.0, 0, n,
             f"Starting {n} run(s) on {workers} worker(s)…"
         )
 
@@ -286,6 +296,8 @@ class StatisticWorker(QThread):
                             ) or f"#{idx}"
                             self.progress.emit(
                                 pct,
+                                done_count,
+                                n,
                                 f"[{done_count}/{n}] {label}"
                             )
 
@@ -297,7 +309,7 @@ class StatisticWorker(QThread):
                 for i in range(n)
                 if i in rows_by_index
             ]
-            self.progress.emit(100.0, "Done")
+            self.progress.emit(100.0, n, n, "Done")
             self.finished.emit(ordered)
 
         except Exception as e:
@@ -312,6 +324,7 @@ class MainWindow(QMainWindow):
         self._result: SimulationResult | None = None
         self._worker: SimulationWorker | None = None
         self._stat_worker: StatisticWorker | None = None
+        self._stat_started_at: float | None = None
         self.time_mode = 'years'  # or 'outer_revolutions'
         self.mode = "single"  # "single" | "statistic"
         self._stat_rows: list = []
@@ -1016,7 +1029,8 @@ class MainWindow(QMainWindow):
         self.btn_run_s.setEnabled(False)
         self.btn_stop_s.setEnabled(True)
         self.progress_s.setValue(0)
-        self.lbl_progress_s.setText("0%")
+        self.lbl_progress_s.setText("0:00 elapsed")
+        self._stat_started_at = time.monotonic()
         self.stat_info.setText(
             f"Running {n} simulation(s) on {max_workers} worker(s)…"
         )
@@ -1039,10 +1053,16 @@ class MainWindow(QMainWindow):
         self.lbl_progress.setText(f"{value}%")
         self.status.showMessage(f"Integrating… {value}%")
 
-    def on_stat_progress(self, pct: float, msg: str):
+    def on_stat_progress(self, pct: float, completed: int, total: int, msg: str):
         value = int(min(100, max(0, pct)))
         self.progress_s.setValue(value)
-        self.lbl_progress_s.setText(f"{value}%")
+        started_at = self._stat_started_at or time.monotonic()
+        elapsed = time.monotonic() - started_at
+        label = f"{_format_duration(elapsed)} elapsed"
+        if completed > 0 and completed < total:
+            remaining = elapsed * (total - completed) / completed
+            label += f" | ~{_format_duration(remaining)} left"
+        self.lbl_progress_s.setText(label)
         self.status.showMessage(msg)
 
     def on_stat_row(self, row: dict):
@@ -1144,9 +1164,16 @@ class MainWindow(QMainWindow):
         self.btn_run_s.setEnabled(True)
         self.btn_stop_s.setEnabled(False)
         self.progress_s.setValue(100)
-        self.lbl_progress_s.setText("100%")
+        elapsed = (
+            time.monotonic() - self._stat_started_at
+            if self._stat_started_at is not None else 0.0
+        )
+        duration = _format_duration(elapsed)
+        self.lbl_progress_s.setText(f"Total {duration}")
         n_ok = sum(1 for r in rows if r.get("success"))
-        self.status.showMessage(f"Statistic done: {n_ok}/{len(rows)} successful")
+        self.status.showMessage(
+            f"Statistic done: {n_ok}/{len(rows)} successful | total time: {duration}"
+        )
         self.stat_info.setText(
             f"Finished: {n_ok}/{len(rows)} successful. "
             "File → Export statistic table (CSV) to save."
