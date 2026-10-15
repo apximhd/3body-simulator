@@ -24,6 +24,8 @@ from .parameter_widget import ParameterWidget
 from .statistic_parameter_widget import StatisticParameterWidget
 from .plot_widget import Trajectory3DWidget, TrajectoryGL3DWidget, Plot2DWidget
 from .stat_plot_widget import StatPlotWidget, build_stat_arrays
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+from matplotlib.figure import Figure
 from core.config import load_config, save_config, get_default_params
 from core.simulation import run_simulation, SimulationResult
 from core.batch import run_stat_task, default_max_workers
@@ -37,7 +39,7 @@ class StatisticTableModel(QAbstractTableModel):
     """On-demand display for statistic rows without allocating per-cell items."""
 
     _RESULT_KEYS = {
-        "Imax", "Imin", "R", "delta_e",
+        "Imax", "Imin", "R", "delta_e", "delta_e_out",
         "e_out_last", "a_out_last", "a_in_ratio", "stability_status",
     }
 
@@ -263,6 +265,7 @@ class StatisticWorker(QThread):
                                 "Imin": float("nan"),
                                 "R": float("nan"),
                                 "delta_e": float("nan"),
+                                "delta_e_out": float("nan"),
                                 "delta_e_pred": float("nan"),
                                 "success": False,
                                 "message": str(exc),
@@ -630,17 +633,45 @@ class MainWindow(QMainWindow):
         )
 
         # --- Summary tab ---
-        self.stat_summary = QTextEdit()
-        self.stat_summary.setReadOnly(True)
-        self.stat_summary.setTextInteractionFlags(
+        summary_page = QWidget()
+        summary_layout = QVBoxLayout(summary_page)
+        summary_layout.setContentsMargins(4, 4, 4, 4)
+        summary_title = QLabel("Statistic Run — Summary")
+        summary_title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        summary_layout.addWidget(summary_title)
+
+        summary_top = QHBoxLayout()
+        self.stat_summary_config = QTextEdit()
+        self.stat_summary_config.setReadOnly(True)
+        self.stat_summary_config.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
-        self.stat_summary.setStyleSheet(
+        self.stat_summary_config.setStyleSheet(
             "QTextEdit { background-color: white; color: #222; }"
         )
+        summary_top.addWidget(self.stat_summary_config, 1)
+
+        self.stat_summary_hist_figure = Figure(tight_layout=True)
+        self.stat_summary_hist_canvas = FigureCanvasQTAgg(
+            self.stat_summary_hist_figure
+        )
+        summary_top.addWidget(self.stat_summary_hist_canvas, 1)
+        summary_layout.addLayout(summary_top, 3)
+
+        self.stat_summary_results = QTextEdit()
+        self.stat_summary_results.setReadOnly(True)
+        self.stat_summary_results.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        self.stat_summary_results.setStyleSheet(
+            "QTextEdit { background-color: white; color: #222; }"
+        )
+        summary_layout.addWidget(self.stat_summary_results, 2)
+
         self._stat_summary_rows = None
-        self.stat_tabs.addTab(self.stat_summary, "Summary")
+        self.stat_tabs.addTab(summary_page, "Summary")
 
         # --- Table tab ---
         table_page = QWidget()
@@ -932,7 +963,8 @@ class MainWindow(QMainWindow):
         max_workers = default_max_workers(max_workers)
 
         result_cols = [
-            "Imax", "Imin", "R", "delta_e",  # "delta_e_pred",
+            "Imax", "Imin", "R", "delta_e", "delta_e_out",
+            # "delta_e_pred",
             "e_out_last", "a_out_last", "a_in_ratio", "stability_status",
         ]
         headers = list(scanned) + result_cols
@@ -1153,8 +1185,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ summary tab
     def _refresh_stat_summary(self, *args):
         rows = getattr(self, "_stat_summary_rows", None)
-        html = self._build_stat_summary_html(rows)
-        self.stat_summary.setHtml(html)
+        configuration_html, results_html = self._build_stat_summary_html(rows)
+        self.stat_summary_config.setHtml(configuration_html)
+        self.stat_summary_results.setHtml(results_html)
+        self._update_stat_summary_histogram(rows)
 
     @staticmethod
     def _fmt_num(value) -> str:
@@ -1174,7 +1208,9 @@ class MainWindow(QMainWindow):
             "Total break at:"
         )
 
-    def _build_stat_summary_html(self, rows: list | None) -> str:
+    def _build_stat_summary_html(
+        self, rows: list | None
+    ) -> tuple[str, str]:
         fmt = self._fmt_num
 
         try:
@@ -1190,7 +1226,6 @@ class MainWindow(QMainWindow):
         parts = [
             "<div style=\"font-family: Georgia, 'Cambria Math', 'DejaVu Serif', "
             "serif; font-size: 11pt; line-height: 1.4;\">",
-            "<h2 style='margin-bottom:4px;'>Statistic Run — Summary</h2>",
             "<h3 style='margin-bottom:2px;'>Configuration</h3>",
             "<p style='margin:2px 0 8px 0;'><b>Integration:</b>&nbsp; "
             f"T<sub>max</sub> = {fmt(t_max)} years,&nbsp;&nbsp;"
@@ -1220,7 +1255,12 @@ class MainWindow(QMainWindow):
                 )
             parts.append("</table>")
 
-        parts.append("<h3 style='margin:14px 0 2px 0;'>Results</h3>")
+        configuration_html = "".join(parts) + "</div>"
+        parts = [
+            "<div style=\"font-family: Georgia, 'Cambria Math', 'DejaVu Serif', "
+            "serif; font-size: 11pt; line-height: 1.4;\">",
+            "<h3 style='margin:8px 0 2px 0;'>Results</h3>",
+        ]
 
         def column(key: str) -> np.ndarray:
             vals = []
@@ -1323,7 +1363,45 @@ class MainWindow(QMainWindow):
                 )
 
         parts.append("</div>")
-        return "".join(parts)
+        return configuration_html, "".join(parts)
+
+    def _update_stat_summary_histogram(self, rows: list | None):
+        self.stat_summary_hist_figure.clear()
+        ax = self.stat_summary_hist_figure.add_subplot(111)
+
+        values = []
+        for row in rows or []:
+            if (
+                not row
+                or not row.get("success", True)
+                or self._is_internal_breakup(row)
+            ):
+                continue
+            try:
+                value = float(row.get("delta_e_out"))
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(value):
+                values.append(value)
+
+        if values:
+            ax.hist(values, bins=50, edgecolor="black")
+        else:
+            message = (
+                "Run a statistic simulation to see the histogram."
+                if rows is None
+                else "No successful finite delta_e_out values."
+            )
+            ax.text(
+                0.5, 0.5, message, ha="center", va="center",
+                transform=ax.transAxes, color="#777",
+            )
+        ax.set_xlabel("delta_e_out")
+        ax.set_ylabel("Count")
+        ax.set_title(f"delta_e_out histogram (N={len(values)})")
+        ax.grid(axis="y", alpha=0.3)
+        self.stat_summary_hist_figure.tight_layout()
+        self.stat_summary_hist_canvas.draw_idle()
 
     def on_simulation_error(self, msg: str):
         if self.mode == "single":
@@ -1342,7 +1420,8 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ import / export
     _RESULT_COLS = (
-        "Imax", "Imin", "R", "delta_e",  # "delta_e_pred",
+        "Imax", "Imin", "R", "delta_e", "delta_e_out",
+        # "delta_e_pred",
         "e_out_last", "a_out_last", "a_in_ratio", "stability_status",
     )
 

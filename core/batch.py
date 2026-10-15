@@ -55,6 +55,7 @@ def extract_stat_row(
             "Imin": float("nan"),
             "R": float("nan"),
             "delta_e": float("nan"),
+            "delta_e_out": float("nan"),
             "delta_e_pred": float("nan"),
             "success": False,
             "message": getattr(result, "message", "failed"),
@@ -71,6 +72,8 @@ def extract_stat_row(
     R = sundman_ratio(Imin, Imax, h, c)
     e_in = result.elements["e_in"]
     de = float(e_in[-1] - e_in[0])
+    e_out = result.elements["e_out"]
+    de_out = float(e_out[-1] - e_out[0])
     de_pred = delta_e_predicted(params)
     internal_breakup, internal_breakup_time = _internal_breakup(result, params)
     stability_status = result.message
@@ -96,6 +99,7 @@ def extract_stat_row(
         "Imin": Imin,
         "R": R,
         "delta_e": de,
+        "delta_e_out": de_out,
         "delta_e_pred": de_pred,
         "e_out_last": float(result.elements["e_out"][-1]),
         "a_out_last": float(result.elements["a_out"][-1]),
@@ -159,6 +163,7 @@ def run_stat_task(task: Dict[str, Any]) -> Dict[str, Any]:
             "a_in_ratio": float("nan"),
             "stability_status": str(exc),
             "delta_e": float("nan"),
+            "delta_e_out": float("nan"),
             "success": False,
             "message": str(exc),
         })
