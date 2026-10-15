@@ -37,6 +37,13 @@ python main.py
 
 ### Histogram of statistic results
 
+The **Summary** tab shows a histogram of the inner eccentricity change
+(`delta_e = e_in(final) - e_in(initial)`) beside **Configuration**, above
+**Results**. Use **Bins** to change the number of bins (default: 50) and
+**Export PDF** to save a vector figure with publication-style labels.
+The histogram includes finite values from successful runs without internal
+breakup, matching the Summary statistics, and also works with imported CSV data.
+
 Plot a histogram of the `delta_e` column from an exported CSV:
 
 ```bash

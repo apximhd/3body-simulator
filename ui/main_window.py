@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QFormLayout, QFileDialog, QMessageBox, QStatusBar,
     QProgressBar, QTabWidget, QTextEdit, QLabel, QTableView,
     QHeaderView, QAbstractItemView, QStackedWidget,
-    QSizePolicy
+    QSizePolicy, QSpinBox
 )
 from PyQt6.QtCore import (
     Qt, QThread, pyqtSignal, QAbstractTableModel, QModelIndex
@@ -24,6 +24,7 @@ from .parameter_widget import ParameterWidget
 from .statistic_parameter_widget import StatisticParameterWidget
 from .plot_widget import Trajectory3DWidget, TrajectoryGL3DWidget, Plot2DWidget
 from .stat_plot_widget import StatPlotWidget, build_stat_arrays
+from matplotlib import rc_context
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from core.config import load_config, save_config, get_default_params
@@ -652,11 +653,33 @@ class MainWindow(QMainWindow):
         )
         summary_top.addWidget(self.stat_summary_config, 1)
 
-        self.stat_summary_hist_figure = Figure(tight_layout=True)
+        histogram_layout = QVBoxLayout()
+        self.stat_summary_hist_figure = Figure(
+            figsize=(6, 4), tight_layout=True, facecolor="white"
+        )
         self.stat_summary_hist_canvas = FigureCanvasQTAgg(
             self.stat_summary_hist_figure
         )
-        summary_top.addWidget(self.stat_summary_hist_canvas, 1)
+        histogram_layout.addWidget(self.stat_summary_hist_canvas)
+        histogram_controls = QHBoxLayout()
+        histogram_controls.addWidget(QLabel("Bins:"))
+        self.stat_summary_hist_bins = QSpinBox()
+        self.stat_summary_hist_bins.setRange(1, 2_147_483_647)
+        self.stat_summary_hist_bins.setValue(50)
+        self.stat_summary_hist_bins.setKeyboardTracking(False)
+        self.stat_summary_hist_bins.valueChanged.connect(
+            lambda _: self._update_stat_summary_histogram(self._stat_summary_rows)
+        )
+        histogram_controls.addWidget(self.stat_summary_hist_bins)
+        histogram_controls.addStretch()
+        self.stat_summary_hist_export = QPushButton("Export PDF")
+        self.stat_summary_hist_export.setEnabled(False)
+        self.stat_summary_hist_export.clicked.connect(
+            self._export_stat_summary_histogram
+        )
+        histogram_controls.addWidget(self.stat_summary_hist_export)
+        histogram_layout.addLayout(histogram_controls)
+        summary_top.addLayout(histogram_layout, 1)
         summary_layout.addLayout(summary_top, 3)
 
         self.stat_summary_results = QTextEdit()
@@ -1378,30 +1401,66 @@ class MainWindow(QMainWindow):
             ):
                 continue
             try:
-                value = float(row.get("delta_e_out"))
+                value = float(row.get("delta_e"))
             except (TypeError, ValueError):
                 continue
             if np.isfinite(value):
                 values.append(value)
 
         if values:
-            ax.hist(values, bins=50, edgecolor="black")
+            ax.hist(
+                values, bins=self.stat_summary_hist_bins.value(),
+                color="#4477aa", edgecolor="black", linewidth=0.5,
+            )
         else:
             message = (
                 "Run a statistic simulation to see the histogram."
                 if rows is None
-                else "No successful finite delta_e_out values."
+                else "No successful finite inner eccentricity changes."
             )
             ax.text(
                 0.5, 0.5, message, ha="center", va="center",
                 transform=ax.transAxes, color="#777",
             )
-        ax.set_xlabel("delta_e_out")
-        ax.set_ylabel("Count")
-        ax.set_title(f"delta_e_out histogram (N={len(values)})")
+        text_style = {
+            "fontfamily": "DejaVu Serif",
+            "math_fontfamily": "dejavuserif",
+        }
+        ax.set_xlabel(r"$\Delta e_{\mathrm{in}}$", fontsize=14, **text_style)
+        ax.set_ylabel("Number of simulations", fontsize=12, **text_style)
+        ax.set_title(
+            r"Distribution of $\Delta e_{\mathrm{in}}$",
+            fontsize=14, **text_style,
+        )
+        ax.tick_params(axis="both", labelsize=11)
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontfamily("DejaVu Serif")
         ax.grid(axis="y", alpha=0.3)
+        ax.set_axisbelow(True)
+        self.stat_summary_hist_export.setEnabled(bool(values))
         self.stat_summary_hist_figure.tight_layout()
         self.stat_summary_hist_canvas.draw_idle()
+
+    def _export_stat_summary_histogram(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export histogram as PDF", "delta_e_in_histogram.pdf",
+            "PDF (*.pdf)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".pdf"):
+            path += ".pdf"
+        try:
+            with rc_context({"pdf.fonttype": 42}):
+                self.stat_summary_hist_figure.savefig(
+                    path, format="pdf", bbox_inches="tight", facecolor="white"
+                )
+        except (OSError, ValueError, RuntimeError) as exc:
+            QMessageBox.critical(
+                self, "Error", f"Failed to export histogram:\n{exc}"
+            )
+            return
+        self.status.showMessage(f"Exported: {path}")
 
     def on_simulation_error(self, msg: str):
         if self.mode == "single":
