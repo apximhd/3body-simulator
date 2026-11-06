@@ -1,376 +1,179 @@
-# 3-Body AB+C Simulator User Guide
+# User Guide: 3-Body AB+C Simulator
 
-## Overview
+This guide covers the simulator after it has started. It explains how to set up a system, run and inspect a simulation, scan parameters, and interpret the outputs. It does not cover installation or launch procedures.
 
-The **3-Body AB+C Simulator** is a cross-platform desktop application for simulating and analyzing hierarchical three-body systems. The model consists of:
+## 1. What the simulator does
 
-- **Inner binary**: bodies A and B orbiting their common center of mass
-- **Outer body**: body C orbiting the center of mass of the inner binary
+The application models three gravitating point masses arranged as an inner binary, A and B, plus an outer body, C. You specify the initial system with masses and orbital elements. The program converts those elements into positions and velocities, then numerically integrates the full three-body equations of motion. The plots show how the orbits and their osculating elements evolve.
 
-The application uses REBOUND library with IAS15 (high-accuracy) or WHFast (fast) integrators, and provides interactive 3D visualization, projection views, and statistical analysis capabilities.
+The simulator is useful for exploring orbital evolution, mutual inclination and eccentricity changes, possible loss of a bound outer orbit, and sensitivity to selected initial parameters. It offers two complementary workflows:
 
-### System Requirements
+- **Single run** follows one initial configuration and provides time histories and trajectories.
+- **Statistic run** repeats the integration over a one- or two-parameter grid and compares a set of summary quantities across runs.
 
-- Python 3.8 or later
-- 64-bit operating system (Windows, macOS, Linux)
-- Minimum 4 GB RAM (8 GB+ recommended for statistical runs)
-- OpenGL-capable graphics card recommended for 3D visualization
+The model is Newtonian: it does not include relativistic corrections, physical body radii, tides, or other non-gravitational effects. The bodies are treated as point masses. A numerically successful run is not, by itself, evidence that the chosen physical model is appropriate for a real system.
 
-## Installation
+## 2. Main window and common controls
 
-### 1. Clone or locate the application
+Choose **Mode → 1. Single run** or **Mode → 2. Statistic run**. Each mode has its own parameter fields and integration controls. A running job must be stopped before switching modes.
 
-Ensure you have the application files in a directory (e.g., `3body_simulator/`).
+The **File** menu provides:
 
-### 2. Create and activate a virtual environment
+- **Open configuration…** loads a YAML parameter configuration into the interface.
+- **Save configuration…** saves the current parameter values. In Statistic mode, scanned parameters are saved using their start value as the base value; scan ranges themselves are not a substitute for exporting the result table.
+- **Import statistic table (CSV)…** loads a previous statistic table into the table, plots, and summary.
+- **Export statistic table (CSV)…** saves completed statistic rows. It is not an exporter for single-run trajectories.
 
-**Linux / macOS:**
-```bash
-cd 3body_simulator
-python -m venv env
-source env/bin/activate
-```
+Masses are in solar masses ($M_\odot$), distances in astronomical units (AU), and angles in degrees. The simulation uses units with $G=1$; one year corresponds to $2\pi$ internal time units. The `T_max` fields are in years. `dt (WHFast)` is the fixed integration step in the integrator's internal time units; it is not the number of saved output points.
 
-**Windows:**
-```cmd
-cd 3body_simulator
-python -m venv env
-.\env\Scripts\activate
-```
+## 3. Initial conditions and parameter fields
 
-### 3. Install dependencies
+The inputs describe two osculating Keplerian orbits at the start of the calculation.
 
-```bash
-pip install -r requirements.txt
-```
+### Masses
 
-### 4. Launch the application
+- **M1**: mass of body A.
+- **M2**: mass of body B.
+- **M3**: mass of the outer body C.
 
-```bash
-python main.py
-```
+### Inner orbit AB
 
-## Basic Operation
+- **a_in (AU)**: inner semi-major axis.
+- **e_in**: inner eccentricity.
+- **i_in (°)**: inclination of the inner orbital plane to the reference plane.
+- **Ω_in (°)**: longitude of the ascending node.
+- **ω_in (°)**: argument of periapsis.
+- **M_in (°)**: mean anomaly at the initial epoch; it sets the orbital phase for an elliptical orbit.
 
-### Starting the Application
+### Outer orbit C
 
-Run `python main.py` from the application directory. The main window will appear.
+The outer orbit is specified relative to the centre of mass of AB.
 
-### Window Size
+- **Q (q / a_in)**: outer periapsis distance divided by the inner semi-major axis. Thus $q_{out}=Q\,a_{in}$.
+- **e_out**: outer eccentricity.
+- **i_out, Ω_out, ω_out (°)**: outer inclination, longitude of ascending node, and argument of periapsis.
+- **M_out (°)**: mean anomaly at the initial epoch for an elliptical outer orbit ($e_{out}<1$).
+- **t_out (y)**: time parameter used to set C's initial phase for a parabolic or hyperbolic outer orbit ($e_{out}\ge1$). The interface switches between `M_out` and `t_out` based on eccentricity. For scans that cross $e_{out}=1$, verify that the selected phase parameter is meaningful for both orbit types.
 
-- On screens smaller than 1400×900 pixels, the window maximizes automatically
-- On larger screens, the window opens at 1400×900 pixels position at (0, 0)
+For an ellipse, the code derives the outer semi-major axis from $q_{out}$ and eccentricity. For a hyperbola it uses a negative semi-major axis internally; for a parabola it uses the periapsis-based parabolic formulation. Make sure `Q`, masses, semi-major axis, and eccentricities describe a physically meaningful initial orbit. Input widgets accept numeric values but do not replace scientific validation of the configuration.
 
-## User Interface Overview
+## 4. Choosing an integrator
 
-The main window contains:
+Both methods are provided by REBOUND and integrate the interacting three-body system.
 
-### Menu Bar
+### IAS15 (high accuracy)
 
-- **File** menu:
-  - Open configuration...
-  - Save configuration...
-  - Import statistic table (CSV)...
-  - Export statistic table (CSV)...
-  - Quit
+IAS15 is an adaptive, high-order integrator. It adjusts its internal step to resolve the dynamics and is generally the safer first choice for eccentric orbits, close approaches, and exploratory runs where the required resolution is not known in advance.
 
-- **Mode** menu (critical — switches between run modes):
-  - **1. Single run** — interactive plots for one simulation
-  - **2. Statistic run** — parameter scan (batch processing)
+**Advantages:** adaptive error control; handles a broad range of dynamical timescales; no fixed `dt` tuning is required.
 
-- **Help** menu:
-  - About
+**Trade-offs:** can be slower, particularly for long runs or large scans; accuracy still depends on the system and requested computation, so conservation plots should be inspected.
 
-### Toolbar Areas (Tabs)
+### WHFast (fast)
 
-The interface is organized into several key areas:
+WHFast is a fixed-step symplectic method designed for efficient long-term integration of suitable gravitational systems. Its `dt` is used as the integration step; choose it small enough to resolve the shortest important orbital timescale and any close encounter.
 
-1. **Parameters Panel** — Input system parameters (masses, orbital elements)
-2. **Run Controls** — Execute simulations
-3. **Plot Area** — Visualize results (3D trajectories, 2D projections, plots)
-4. **Statistics Panel** (Statistic mode only) — Scan results table and histogram
+**Advantages:** often faster for long integrations of well-separated, near-Keplerian orbits; symplectic structure can give favorable long-term energy behavior when the step is appropriate.
 
-## Parameter Input
+**Trade-offs:** accuracy and stability depend strongly on `dt`; large steps can miss rapid encounters or distort eccentric motion. A good energy trace does not guarantee that every orbital feature is resolved. For difficult or close-encounter cases, compare against IAS15 and repeat WHFast with a smaller step.
 
-### Single Run Mode Parameters
+A practical approach is to validate a representative case with IAS15, then test WHFast step-size convergence before using it for a large batch. The `Output points` setting controls recorded snapshots, not WHFast's integration step and not IAS15's adaptive step.
 
-In Single run mode, you can input all system parameters:
+## 5. Workflow A: one detailed simulation
 
-#### Masses (M☉ — solar masses)
-- **M₁ (mass_A)**: Mass of inner body A (default: 1.5)
-- **M₂ (mass_B)**: Mass of inner body B (default: 0.5)
-- **M₃ (mass_C)**: Mass of outer body C (default: 0.5, but see configs)
-
-#### Inner Orbit AB
-- **a_in (a_AB)**: Semi-major axis in AU (default: 1.0)
-- **e_in (e_AB)**: Eccentricity (default: 0.6, range: 0–1 for ellipse)
-- **i_in (i_AB)**: Inclination in degrees (default: 0.0)
-- **Ω_in (Omega_AB)**: Longitude of ascending node in degrees (default: 0.0)
-- **ω_in (omega_AB)**: Argument of periapsis in degrees (default: 60.0)
-- **M_in (M_AB)**: Mean anomaly in degrees (default: 0.0)
+1. Select **Mode → 1. Single run**.
+2. Enter or load masses and orbital elements. Start from the provided values or a saved configuration, then change only the parameters needed for the experiment.
+3. Choose an integrator. For IAS15, `dt (WHFast)` is ignored. For WHFast, set `dt` deliberately.
+4. Set **Output points** to control how many trajectory snapshots are stored and plotted. More points can make curves more detailed but require more memory and plotting work. They do not force the integrator to take more physics steps.
+5. Set **T_max (years)**, the final simulated time.
+6. Select the time axis: **Years** or **Outer body revolutions**. This changes plot axes only; it does not change the integration.
+7. Press **Run** and monitor progress. **Stop** terminates the current single run; an interrupted run does not produce a completed result set.
+8. Review the plots and the **Log** tab. The log reports runtime, recorded steps, initial/final energy, inner and outer eccentricity, and mutual inclination.
 
-#### Outer Orbit C
-- **Q**: Periapsis distance as ratio to inner binary semi-major axis (q/a_in, default: 5.0)
-- **e_out (e_AC)**: Outer orbit eccentricity (default: 0.5)
-  - If e_AC < 1: Mean anomaly field appears (M_out)
-  - If e_AC >= 1: Time field appears (t_out in years)
-- **i_out (i_AC)**: Inclination in degrees (default: 140.0)
-- **Ω_out (Omega_AC)**: Longitude of ascending node in degrees (default: 0.0)
-- **ω_out (omega_AC)**: Argument of periapsis in degrees (default: 155.0)
-- **M_out/t_out**: Mean anomaly (elliptic orbits) or time to periastron (parabolic/hyperbolic orbits)
+### Single-run tabs
 
-### Statistic Run Mode Parameters
+- **I_total and e_in**: inner eccentricity and total moment of inertia $I(t)$, plotted against time. The moment of inertia is computed about the system centre of mass.
+- **XY projection**: projected paths of A, B, and C in the system centre-of-mass frame, with distance in AU.
+- **Eccentricities**: $e_{in}(t)$ and $e_{out}(t)$.
+- **Semi-major axes**: $a_{in}(t)$ and $a_{out}(t)$ in AU. A non-positive outer semi-major axis corresponds to an unbound osculating outer orbit.
+- **Inclinations**: cosine of mutual inclination and mutual inclination in degrees. Mutual inclination is the angle between the two orbital angular-momentum vectors.
+- **cos(i_mut) vs e_in**: the phase-plane trajectory, useful for examining coupled eccentricity/inclination evolution, including Kozai-Lidov-like behavior.
+- **3D trajectories**: 3D paths in the standard view.
+- **3D trajectories (CM AB)**: an interactive OpenGL view plotted relative to the AB centre of mass when OpenGL is available. If OpenGL is unavailable, the application provides a 2D fallback. The displayed curve may be interpolated between recorded samples to look smooth; that rendering interpolation does not add simulated physics data.
+- **Total Energy check**: total energy and relative change $\Delta E/E_0$. Energy drift is a useful numerical diagnostic, not a complete accuracy test.
+- **Log**: text summary of the completed run or an error.
 
-In Statistic mode, each parameter has a checkbox and range controls:
+## 6. Workflow B: parameter scan
 
-- **Check box**: Enable scanning for this parameter
-- **Start / End / Step**: Define the range of values to scan
-- **At most 2 parameters** can be scanned simultaneously
-- Unchecked parameters keep their fixed value
+Statistic mode runs a grid of independent simulations. It is intended for sensitivity studies and parameter surveys rather than detailed inspection of a single trajectory.
 
-**Scannable parameters include**: All masses, orbital elements, and Q factor.
+1. Select **Mode → 2. Statistic run**.
+2. For each parameter to vary, check its box and enter **Start**, **End**, and **Step**. Leave other parameters unchecked; their fixed values apply to every simulation.
+3. Scan no more than two parameters at once. The interface enforces this limit. A third checked parameter is rejected.
+4. Choose the grid carefully. The number of simulations is the product of the number of values in each scanned range. For example, 21 values for one parameter and 11 for another produce 231 runs. The range is inclusive; if the step does not land exactly on the end, the end may be added as a final value. The step must point from Start toward End. A zero step is treated as a single value, so it is not useful for a scan.
+5. Set the integrator, `dt (WHFast)` if applicable, `Output points`, and `T_max (years)` as for a single run.
+6. Set **Extra Time (years)**. In statistic mode, the application monitors initially bound outer orbits for the osculating unbound condition ($e_{out}\ge1$ or $a_{out}\le0$). If detected, it can continue integrating for this additional interval before finalizing the row. This is a batch-mode monitoring feature; the ordinary single-run workflow integrates to `T_max` unless stopped manually.
+7. Set **Workers (0=auto)**. `0` chooses an automatic process count based on available CPU cores; `1` runs with one worker. More workers may reduce elapsed time, but compete for memory and CPU. Start conservatively on a machine with limited resources.
+8. Press **Run**. For more than 200 combinations, the application asks for confirmation. Progress shows completed runs and an approximate remaining time. **Stop** requests cancellation; completed rows remain available and can be exported.
 
-### Parameter Groups
+The grid combinations are Cartesian products: every selected value of one parameter is paired with every selected value of the other. A scan is not random sampling. For reproducible comparisons, record the fixed parameters, scanned ranges, integrator, time horizon, and WHFast step (if used) along with the CSV.
 
-Parameters are organized into groups for clarity:
+### Statistic tabs and columns
 
-1. **Masses (M☉)**: mass_A, mass_B, mass_C
-2. **Inner orbit AB**: a_AB, e_AB, i_AB, Omega_AB, omega_AB, M_AB
-3. **Outer orbit C**: Q, e_AC, i_AC, Omega_AC, omega_AC, M_AC, t_AC
+- **Summary** displays the current statistic-mode configuration, summary statistics, and a histogram of $\Delta e_{in}$. Adjust **Bins** to change histogram resolution; **Export PDF** saves the histogram.
+- **Table** lists each scanned parameter combination with its calculated outputs. Rows are ordered by scan combination even when parallel runs finish out of order.
+- **Imax**, **Imin**, **R**, and **Δe** plot one-dimensional results for one scanned parameter or a surface for two. Use **Save PNG** or **Save EPS** on a plot tab to export that figure. Two-parameter surfaces are interpolated to make the rendering smoother; the underlying results are only the sampled grid points.
 
-### AC Anomaly Switch
+The result columns are:
 
-When e_AC >= 1 (parabolic or hyperbolic outer orbit), the interface automatically switches from showing Mean anomaly (M_out) to showing time to periastron (t_out in years).
+- **Imax** and **Imin**: extrema associated with the system moment-of-inertia history. The calculation smooths over the inner orbital period to identify the slow envelope, then estimates extrema from the recorded series. These are derived summary values, not direct measurements of a single body's orbit.
+- **R**: the Sundman ratio $R=(2|h|)^2 I_{min}I_{max}/c^4$, where $h$ is total energy and $c$ is the magnitude of total angular momentum. The cited criterion requires $R\ge1$; interpret it in the context of its assumptions and the finite numerical time series rather than as a standalone stability classifier.
+- **delta_e**: simulated change in inner eccentricity, $e_{in}(final)-e_{in}(initial)$.
+- **delta_e_out**: change in outer eccentricity over the simulated interval.
+- **e_out_last**, **a_out_last**: final sampled osculating outer eccentricity and semi-major axis.
+- **a_in_last/a_in_init**: ratio of final sampled to initial inner semi-major axis.
+- **stability_status**: a status message such as `Stable at T_max`, an outer-orbit break time, or an inner-system breakup indication.
 
-## Run Modes
+The **Δe** statistic plot currently shows the simulated change only; it does not overlay the theoretical prediction. Summary statistics and the histogram use successful finite results and exclude rows marked as internal breakup. The table and CSV can still contain those rows, so check the status column before interpreting aggregate plots.
 
-### Single Run Mode
+## 7. Importing and exporting results
 
-**Purpose**: Run one simulation with the current parameters and visualize the results.
+Use **File → Export statistic table (CSV)…** to save completed statistic rows. The CSV contains the scanned parameter columns and result columns. Export is useful for external analysis and for preserving a batch independently of the current session.
 
-**Controls**:
-- **Run** button: Execute the simulation
-- **Stop**: (Optional) Stop a running simulation
-- **Progress indicator**: Shows simulation progress
+Use **File → Import statistic table (CSV)…** to review prior data without rerunning it. Imported data is shown in statistic plots and the summary. At most the first two non-result columns are treated as scanned parameters for plotting. The summary configuration panel reflects the parameters currently entered in the application; it is not guaranteed to reconstruct the original full configuration from an arbitrary CSV. Keep the original scan settings with the exported file when provenance matters.
 
-**Visualizations**:
-- 3D trajectory plot (OpenGL if available, otherwise matplotlib fallback)
-- XY projection
-- e_in (inner eccentricity) vs time
-- Moment of inertia vs time
-- cos(i_mut) vs e_in (Kozai-Lidov phase plane)
-- Energy conservation plot
-- Body separations
-
-**Output**: Results are displayed in real-time during and after the simulation.
-
-### Statistic Run Mode
-
-**Purpose**: Perform a parameter scan to explore how varying parameters affect system behavior.
-
-**Configuration**:
-1. Select parameters to scan (check their checkboxes)
-2. Set Start, End, and Step values for each scanned parameter
-3. **Maximum 2 parameters** can be scanned simultaneously
-4. Click **Start** to begin the batch processing
+The histogram can be saved as PDF from **Summary**. Statistic quantity plots can be saved as PNG or EPS from their own tabs. The application does not currently provide a single-run trajectory or plot export workflow through the File menu.
 
-**Batch Processing**:
-- Uses `ProcessPoolExecutor` for parallel processing
-- Default workers: `cpu_count - 1` (at least 1)
-- Each parameter combination runs a full simulation
-- Results are collected in a table
+## 8. Suggested scenarios
 
-**Available Statistic Quantities**:
-- **Imax**: Maximum moment of inertia
-- **Imin**: Minimum moment of inertia
-- **R**: Sundman ratio (chaos indicator)
-- **δe (delta_e)**: Inner eccentricity change (final - initial)
-- **δe_out**: Outer eccentricity change
-- **δe_pred**: Predicted eccentricity change
-- **Stability status**: "Stable" or breakup information
-- **Internal breakup**: Whether inner eccentricity crossed threshold
+### Inspect a known configuration
 
-**Results Table Columns**:
-- Scanned parameter values
-- I_last_min, L_in_0/f, E_0/f
-- delta_e, delta_e_out
-- success status, message
+Load a configuration, use IAS15, choose a manageable `T_max`, and run once. Check `Total Energy check` and compare the eccentricity, semi-major-axis, and inclination histories. Increase the time horizon only after the initial behavior looks plausible.
 
-**Export**: Results can be exported to CSV format.
+### Test numerical sensitivity
 
-**Summary Tab**:
-- Histogram of δe (inner eccentricity change)
-- Adjustable number of bins
-- Export PDF for publication-quality figures
+Run the same setup with IAS15 and WHFast. For WHFast, repeat with progressively smaller `dt`. Compare eccentricity changes, encounter timing, and energy behavior. If the qualitative result changes materially with the step, the coarser WHFast run is not adequately resolved.
 
-## 3D Visualization
+### Map dependence on one orbital parameter
 
-### Trajectory Views
+In Statistic mode, scan one parameter such as `i_out` or `Q`, keeping the others fixed. Use a coarse range first to identify broad trends, then narrow the range or reduce the step around transitions. Review both the result plot and individual table statuses.
 
-The application provides multiple visualization options:
+### Explore interactions between two parameters
 
-1. **3D Trajectory** (OpenGL preferred):
-   - Interactive 3D view of orbital paths
-   - Colored lines for bodies A, B, C
-   - Grid and axis labels
-   - Camera distance readout
+Scan two parameters to obtain a two-dimensional surface, for example `Q` and `e_out`. Use a modest grid initially because cost grows multiplicatively. Treat interpolated regions between sample points as visualization only; add actual grid points before making claims about narrow features.
 
-2. **XY Projection**:
-   - 2D projection of orbits in the x-y plane
-   - Body labels (A, B, C)
-   - Aspect ratio locked
+### Compare a batch with a reference prediction
 
-3. **Matplotlib Fallback**:
-   - Used when OpenGL is not available
-   - 3D and 2D plots still functional
+Export the CSV and compare simulated `delta_e` values with an independently calculated theoretical estimate. The current GUI does not display the predicted values in the Δe plot, so do not read that tab as a simulation-versus-theory comparison.
 
-### Plot Controls
+## 9. Practical cautions and troubleshooting
 
-- **Zoom/pan**: Standard mouse interactions
-- **Reset view**: Return to default perspective
-- **Save images**: PNG or EPS format via toolbar buttons
+- **A run finishes but the orbit appears unbound:** inspect `e_out`, `a_out`, and the status. An unbound osculating orbit may be a physical outcome of the model, not an integration error.
+- **WHFast results look suspicious or differ from IAS15:** reduce `dt`; verify convergence. Close encounters and high eccentricities can demand much finer steps.
+- **Energy is not well conserved:** inspect the relative-energy plot, then test a more suitable integrator or a tighter WHFast step. Energy conservation is necessary for many analyses but is not sufficient to establish trajectory accuracy in a chaotic system.
+- **A statistic scan produces no run or only one combination:** check that at least one valid range is selected, that Start differs from End, and that Step has the correct sign. Empty range fields do not define a scan.
+- **A batch is slow or the machine becomes unresponsive:** reduce the number of grid points, lower Workers, or shorten `T_max` for a pilot scan. Independent simulations can still consume substantial CPU and memory.
+- **A plot has gaps, non-finite values, or very sharp features:** inspect the corresponding table row and status, increase the number of output points where a sampled extremum matters, and validate the integration settings. More output points do not repair an integration step that is too large.
+- **The run is stopped:** a single-run cancellation ends that run without a completed result. A stopped statistic batch may retain and export rows that finished before cancellation.
 
-## Configuration Management
-
-### Loading/Saving Configurations
-
-- **Open configuration**: Load a YAML file with system parameters
-- **Save configuration**: Save current parameters to a YAML file
-- **Default configuration**: The app ships with `configs/default.yaml`
-
-### Configuration File Format (YAML)
-
-Configuration files contain key-value pairs for all parameters. Example:
-
-```yaml
-mass_A: 1.5
-mass_B: 0.5
-mass_C: 0.5
-a_AB: 1.0
-e_AB: 0.6
-i_AB: 0.0
-Omega_AB: 0.0
-omega_AB: 60.0
-M_AB: 0.0
-Q: 5.0
-e_AC: 0.5
-i_AC: 140.0
-Omega_AC: 0.0
-omega_AC: 155.0
-M_AC: 0.0
-t_AC: -50.0
-t_max: 30000.0
-t_delay: 50.0
-```
-
-### Pre-configured Configurations
-
-The `configs/` directory contains several test configurations with varying parameters for quick exploration.
-
-## Statistic Results Analysis
-
-### Summary Histogram
-
-The Summary tab displays a histogram of the inner eccentricity change (δe = e_in(final) - e_in(initial)):
-
-- **Bins**: Adjustable parameter (default: 50)
-- **Export PDF**: Save a vector figure with publication-style labels
-- The histogram includes only successful runs without internal breakup
-- Also works with imported CSV data
-
-### Exporting Results
-
-- **CSV export**: Export the full statistic table to comma-separated values
-- **PDF export**: Export the summary histogram as a publication-quality vector figure
-- **Diagram.py utility**: Command-line tool for plotting histograms from CSV files
-
-**Diagram.py usage**:
-```bash
-# Plot histogram from results CSV
-python diagram.py results.csv
-
-# With custom bins and output file
-python diagram.py results.csv --bins 100 --output histogram.png
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **OpenGL not available**
-   - The application falls back to matplotlib rendering
-   - Some visual effects may be reduced
-
-2. **Simulation takes too long**
-   - Reduce t_max (integration time)
-   - Reduce n_output (number of output points)
-   - Use WHFast integrator for faster (but less accurate) results
-
-3. **Statistical runs fail**
-   - Check that at most 2 parameters are scanned simultaneously
-   - Ensure valid numeric ranges (Start < End, Step > 0)
-   - Some parameter combinations may lead to unstable systems (this is expected)
-
-4. **Memory issues during statistical runs**
-   - Reduce the number of workers
-   - Reduce t_max or n_output
-   - Close other applications to free memory
-
-5. **"Internal breakup detected"**
-   - This means the inner binary's eccentricity crossed a threshold
-   - The simulation may have been terminated early
-   - Check the stability_status column in results
-
-### Need Help?
-
-- Check the `README.md` file for quick start information
-- View the `about` dialog in the application menu
-- Ensure all dependencies are installed per `requirements.txt`
-
-## Technical Notes
-
-### Unit System
-
-The application uses a natural unit system:
-- **Mass**: Solar masses (M☉)
-- **Length**: Astronomical units (AU)
-- **Time**: 1 year = 2π (with G = 1, meaning Earth's angular frequency is 1 rad/year)
-
-### Integrators
-
-- **IAS15**: High-accuracy Radau integrator (default recommended)
-- **WHFast**: Fast Whfast integrator for quicker runs
-
-### Parallel Processing
-
-Statistical runs use `ProcessPoolExecutor` with `spawn` start method (required for Windows and macOS with PyInstaller). Each worker process:
-- Does not share Qt objects
-- Returns plain Python dict results
-- Uses multiprocessing.freeze_support() for PyInstaller builds
-
-### Stability Detection
-
-The application detects:
-- **Orbital instability**: Outer orbit eccentricity >= 1 or semi-major axis <= 0
-- **Internal breakup**: Inner binary eccentricity crosses threshold (1 - e_in_initial)
-
-## Appendices
-
-### Keyboard Shortcuts
-
-- **F5**: Run simulation (Single mode)
-- **Ctrl+O**: Open configuration
-- **Ctrl+S**: Save configuration
-- **Ctrl+I**: Import statistic table
-- **Ctrl+E**: Export statistic table
-
-### Frequently Asked Questions
-
-**Q**: Can I run the app on a Mac with Apple Silicon?  
-**A**: Yes, the application is universal and runs natively on Apple Silicon Macs.
-
-**Q**: How do I cite this tool?  
-**A**: Refer to it as "3-Body AB+C Simulator" with the version from the about dialog.
-
-**Q**: Can I integrate this into my own Python code?  
-**A**: Yes, the core modules (simulation, config, elements) can be imported and used independently.
+Three-body dynamics can be chaotic: small changes in initial conditions or numerical resolution may lead to large long-term trajectory differences. Prefer convergence checks, compare suitable methods, and report the model assumptions and numerical settings with scientific conclusions.
