@@ -35,6 +35,21 @@ pip install -r requirements.txt
 python main.py
 ```
 
+### Fill missing statistic results
+
+To calculate empty `Δe_in`, `σ`, and `SE` cells in a statistic CSV and save
+the file after each completed row. A separate detailed per-simulation CSV is
+saved beside it for each processed row, using the same descriptive filename
+format as **File → Export Statistic table**:
+
+```bash
+python run-stats.py results/results.csv
+```
+
+The script uses the Statistic-mode defaults (`IAS15`, `dt=0.04`, 5000 output
+points) and automatically selects the worker count. Use `--workers N` to set
+it explicitly.
+
 ### Histogram of statistic results
 
 The **Summary** tab shows a histogram of the inner eccentricity change
@@ -47,8 +62,8 @@ breakup, matching the Summary statistics, and also works with imported CSV data.
 Plot a histogram of the `delta_e` column from an exported CSV:
 
 ```bash
-python diagram.py "results.csv"
-python diagram.py "results.csv" --bins 100 --output histogram.png
+python diagram.py "full-results.csv"
+python diagram.py "full-results.csv" --bins 100 --output histogram.png
 ```
 
 By default, the histogram opens in a window with 50 bins. `--output` saves
