@@ -685,12 +685,16 @@ class MainWindow(QMainWindow):
         )
         histogram_controls.addWidget(self.stat_summary_hist_bins)
         histogram_controls.addStretch()
-        self.stat_summary_hist_export = QPushButton("Export PDF")
-        self.stat_summary_hist_export.setEnabled(False)
-        self.stat_summary_hist_export.clicked.connect(
-            self._export_stat_summary_histogram
-        )
-        histogram_controls.addWidget(self.stat_summary_hist_export)
+        self.stat_summary_hist_export_buttons = []
+        for image_format in ("PNG", "SVG", "PDF"):
+            button = QPushButton(f"Export to {image_format}")
+            button.setEnabled(False)
+            button.clicked.connect(
+                lambda checked=False, fmt=image_format.lower():
+                    self._export_stat_summary_histogram(fmt)
+            )
+            self.stat_summary_hist_export_buttons.append(button)
+            histogram_controls.addWidget(button)
         histogram_layout.addLayout(histogram_controls)
         summary_top.addLayout(histogram_layout, 1)
         summary_layout.addLayout(summary_top, 3)
@@ -1464,23 +1468,28 @@ class MainWindow(QMainWindow):
             label.set_fontfamily("DejaVu Serif")
         ax.grid(axis="y", alpha=0.3)
         ax.set_axisbelow(True)
-        self.stat_summary_hist_export.setEnabled(bool(values))
+        for button in self.stat_summary_hist_export_buttons:
+            button.setEnabled(bool(values))
         self.stat_summary_hist_figure.tight_layout()
         self.stat_summary_hist_canvas.draw_idle()
 
-    def _export_stat_summary_histogram(self):
+    def _export_stat_summary_histogram(self, image_format: str):
+        extension = image_format.lower()
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export histogram as PDF", "delta_e_in_histogram.pdf",
-            "PDF (*.pdf)",
+            self,
+            f"Export histogram to {image_format.upper()}",
+            f"delta_e_in_histogram.{extension}",
+            f"{image_format.upper()} (*.{extension})",
         )
         if not path:
             return
-        if not path.lower().endswith(".pdf"):
-            path += ".pdf"
+        if not path.lower().endswith(f".{extension}"):
+            path += f".{extension}"
         try:
             with rc_context({"pdf.fonttype": 42}):
                 self.stat_summary_hist_figure.savefig(
-                    path, format="pdf", bbox_inches="tight", facecolor="white"
+                    path, format=extension, bbox_inches="tight", facecolor="white",
+                    **({"dpi": 150} if extension == "png" else {}),
                 )
         except (OSError, ValueError, RuntimeError) as exc:
             QMessageBox.critical(

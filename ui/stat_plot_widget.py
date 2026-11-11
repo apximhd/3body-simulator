@@ -5,7 +5,6 @@ Uses matplotlib for cross-platform 2D/3D rendering inside Qt.
 
 from __future__ import annotations
 
-import logging
 from typing import List, Optional, Sequence
 
 import numpy as np
@@ -59,15 +58,17 @@ class StatPlotWidget(QWidget):
         self._canvas = FigureCanvasQTAgg(self._fig)
         lay.addWidget(self._canvas)
 
-        # Save buttons row
+        # Export buttons row
         btn_lay = QHBoxLayout()
-        self.btn_save_png = QPushButton("Save PNG")
-        self.btn_save_eps = QPushButton("Save EPS")
-        self.btn_save_png.clicked.connect(self._save_png)
-        self.btn_save_eps.clicked.connect(self._save_eps)
+        self._export_buttons = []
         btn_lay.addStretch()
-        btn_lay.addWidget(self.btn_save_png)
-        btn_lay.addWidget(self.btn_save_eps)
+        for image_format in ("PNG", "SVG", "PDF"):
+            button = QPushButton(f"Export to {image_format}")
+            button.clicked.connect(
+                lambda checked=False, fmt=image_format.lower(): self._export(fmt)
+            )
+            self._export_buttons.append(button)
+            btn_lay.addWidget(button)
         lay.addLayout(btn_lay)
 
         self._placeholder = QLabel("Run a statistic scan to see this plot.")
@@ -75,74 +76,40 @@ class StatPlotWidget(QWidget):
         self._placeholder.setStyleSheet("color: #888;")
         lay.addWidget(self._placeholder)
         self._canvas.hide()
-        self.btn_save_png.hide()
-        self.btn_save_eps.hide()
+        self._set_export_buttons_visible(False)
+
+    def _set_export_buttons_visible(self, visible: bool):
+        for button in self._export_buttons:
+            button.setVisible(visible)
 
     def clear(self):
         self._fig.clear()
         self._canvas.draw_idle()
         self._canvas.hide()
-        self.btn_save_png.hide()
-        self.btn_save_eps.hide()
+        self._set_export_buttons_visible(False)
         self._placeholder.show()
 
-    def _save_png(self):
+    def _export(self, image_format: str):
+        extension = image_format.lower()
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save plot as PNG", f"{self._title}.png", "PNG (*.png)"
-        )
-        if path:
-            self._fig.savefig(path, dpi=150, bbox_inches='tight')
-
-    def _save_eps(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save plot as EPS", f"{self._title}.eps", "EPS (*.eps)"
+            self,
+            f"Export plot to {image_format.upper()}",
+            f"{self._title}.{extension}",
+            f"{image_format.upper()} (*.{extension})",
         )
         if not path:
             return
-
-        artists = [self._fig, *self._fig.findobj()]
-        artist_states = []
+        if not path.lower().endswith(f".{extension}"):
+            path += f".{extension}"
         try:
-            for artist in artists:
-                get_alpha = getattr(artist, "get_alpha", None)
-                set_alpha = getattr(artist, "set_alpha", None)
-                alpha = get_alpha() if get_alpha is not None else None
-                if set_alpha is not None and alpha is not None and alpha < 1:
-                    set_alpha(1.0)
-                color_states = []
-                for get_colors_name, set_colors_name in (
-                    ("get_facecolors", "set_facecolors"),
-                    ("get_edgecolors", "set_edgecolors"),
-                ):
-                    get_colors = getattr(artist, get_colors_name, None)
-                    set_colors = getattr(artist, set_colors_name, None)
-                    colors = get_colors() if get_colors is not None else None
-                    if set_colors is not None and colors is not None:
-                        opaque_colors = np.array(colors, copy=True)
-                        if opaque_colors.ndim >= 2 and opaque_colors.shape[-1] == 4:
-                            opaque_colors[..., 3] = 1.0
-                            set_colors(opaque_colors)
-                    color_states.append((set_colors, colors))
-                artist_states.append((set_alpha, alpha, color_states))
-            backend_logger = logging.getLogger("matplotlib.backends.backend_ps")
-            previous_log_level = backend_logger.level
-            backend_logger.setLevel(logging.ERROR)
-            try:
-                self._fig.savefig(
-                    path, format="eps", bbox_inches="tight", transparent=False
-                )
-            finally:
-                backend_logger.setLevel(previous_log_level)
+            options = {"dpi": 150} if extension == "png" else {}
+            self._fig.savefig(
+                path, format=extension, bbox_inches="tight", **options
+            )
         except Exception as error:
-            QMessageBox.critical(self, "Save error", f"Failed to save EPS:\n{error}")
-        finally:
-            for set_alpha, alpha, color_states in artist_states:
-                if set_alpha is not None:
-                    set_alpha(alpha)
-                for set_colors, colors in color_states:
-                    if set_colors is not None and colors is not None:
-                        set_colors(colors)
-            self._canvas.draw_idle()
+            QMessageBox.critical(
+                self, "Export error", f"Failed to export {image_format}:\n{error}"
+            )
 
     @staticmethod
     def _smooth_surface(x, y, z):
@@ -181,8 +148,7 @@ class StatPlotWidget(QWidget):
     ):
         self._placeholder.hide()
         self._canvas.show()
-        self.btn_save_png.show()
-        self.btn_save_eps.show()
+        self._set_export_buttons_visible(True)
         self._fig.clear()
         ax = self._fig.add_subplot(111)
         mask = np.isfinite(x) & np.isfinite(y)
@@ -213,8 +179,7 @@ class StatPlotWidget(QWidget):
         """
         self._placeholder.hide()
         self._canvas.show()
-        self.btn_save_png.show()
-        self.btn_save_eps.show()
+        self._set_export_buttons_visible(True)
         self._fig.clear()
         ax = self._fig.add_subplot(111, projection="3d")
 
@@ -284,8 +249,7 @@ class StatPlotWidget(QWidget):
     ):
         self._placeholder.hide()
         self._canvas.show()
-        self.btn_save_png.show()
-        self.btn_save_eps.show()
+        self._set_export_buttons_visible(True)
         self._fig.clear()
         ax = self._fig.add_subplot(111)
         mask = np.isfinite(x)
@@ -315,8 +279,7 @@ class StatPlotWidget(QWidget):
         """Two surfaces on the same 3D axes (sim solid, pred wireframe)."""
         self._placeholder.hide()
         self._canvas.show()
-        self.btn_save_png.show()
-        self.btn_save_eps.show()
+        self._set_export_buttons_visible(True)
         self._fig.clear()
         ax = self._fig.add_subplot(111, projection="3d")
         X, Y, Z1p = self._smooth_surface(x, y, Z1)

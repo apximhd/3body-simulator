@@ -1,6 +1,6 @@
 # 3-Body AB+C Simulator
 
-Hierarchical three-body system (inner binary AB + outer body C).  
+Hierarchical three-body system (inner binary AB + outer body C).
 **Python + PyQt6**.
 
 ## Features (current version)
@@ -63,8 +63,10 @@ Plot a histogram of the `delta_e` column from an exported CSV:
 
 ```bash
 python diagram.py "full-results.csv"
-python diagram.py "full-results.csv" --bins 100 --output histogram.png
+python diagram.py "full-results.csv" --bins 100 --output histogram.svg
 ```
+
+![Example histogram](histogram.svg)
 
 By default, the histogram opens in a window with 50 bins. `--output` saves
 an image without opening a window. Empty and non-finite values (`nan`, `inf`)
@@ -95,13 +97,13 @@ Only the `delta_e` values are retained in memory, not the entire CSV table.
 
 ## Unit system
 
-- Mass — M☉  
-- Length — AU  
+- Mass — M☉
+- Length — AU
 - Time — 1 year = 2π (G = 1)
 
 ## Roadmap
 
 - [ ] GR corrections (1PN, 2.5PN) with on/off toggle
-- [x] Batch / statistic mode (parameter scan)
-- [x] Export results (CSV)
+- [X] Batch / statistic mode (parameter scan)
+- [X] Export results (CSV)
 - [ ] Standalone application build (PyInstaller)
