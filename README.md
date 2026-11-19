@@ -48,7 +48,10 @@ python run-stats.py results/results.csv
 
 The script uses the Statistic-mode defaults (`IAS15`, `dt=0.04`, 5000 output
 points) and automatically selects the worker count. Use `--workers N` to set
-it explicitly.
+it explicitly. The calculated values use only successful `Break at:` runs
+without internal breakup and with finite `delta_e`; the detailed CSV still
+contains all runs. If none qualify, missing cells remain empty and a warning
+is printed. Existing non-empty cells are not recalculated.
 
 ### Histogram of statistic results
 
@@ -56,10 +59,12 @@ The **Summary** tab shows a histogram of the inner eccentricity change
 (`delta_e = e_in(final) - e_in(initial)`) beside **Configuration**, above
 **Results**. Use **Bins** to change the number of bins (default: 50) and
 **Export PDF** to save a vector figure with publication-style labels.
-The histogram includes finite values from successful runs without internal
-breakup, matching the Summary statistics, and also works with imported CSV data.
+The histogram and Summary statistics include only successful `Break at:` runs
+without internal breakup and with finite values, excluding `Stable at T_max`
+and `Total break at:` rows. The same rule applies to imported CSV data; the
+table retains all rows and other result plots keep their existing rules.
 
-Plot a histogram of the `delta_e` column from an exported CSV:
+Plot a histogram of `delta_e` for `Break at:` rows from an exported CSV:
 
 ```bash
 python diagram.py "full-results.csv"
@@ -70,7 +75,8 @@ python diagram.py "full-results.csv" --bins 100 --output histogram.svg
 
 By default, the histogram opens in a window with 50 bins. `--output` saves
 an image without opening a window. Empty and non-finite values (`nan`, `inf`)
-are skipped with a warning; missing columns and invalid numbers report an error.
+in matching rows are skipped with a warning; missing `delta_e` or
+`stability_status` columns and invalid numbers in matching rows report an error.
 Only the `delta_e` values are retained in memory, not the entire CSV table.
 
 ## Structure

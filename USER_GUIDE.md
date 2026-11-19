@@ -134,7 +134,7 @@ The result columns are:
 - **a_in_last/a_in_init**: ratio of final sampled to initial inner semi-major axis.
 - **stability_status**: a status message such as `Stable at T_max`, an outer-orbit break time, or an inner-system breakup indication.
 
-The **Δe** statistic plot currently shows the simulated change only; it does not overlay the theoretical prediction. Summary statistics and the histogram use successful finite results and exclude rows marked as internal breakup. The table and CSV can still contain those rows, so check the status column before interpreting aggregate plots.
+The **Δe** statistic plot currently shows the simulated change only; it does not overlay the theoretical prediction. Summary statistics and the histogram use only successful rows whose `stability_status` starts with `Break at:`, without internal breakup, and whose value for the relevant quantity is finite. Rows marked `Stable at T_max` or `Total break at:` are excluded from the summary and histogram but remain in the table and exported CSV; the individual result plots keep their existing rules. The same summary rule applies to imported CSV data; without status data, qualifying runs cannot be identified.
 
 ## 7. Importing and exporting results
 

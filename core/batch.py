@@ -24,6 +24,14 @@ from .elements import (
 from .constants import YEAR
 
 
+def is_break_stat_row(row: Dict[str, Any] | None) -> bool:
+    """Return whether a row can contribute to break-only statistics."""
+    if not row or not row.get("success", True) or row.get("internal_breakup", False):
+        return False
+    status = row.get("stability_status")
+    return isinstance(status, str) and status.strip().startswith("Break at:")
+
+
 def _internal_breakup(result, params: Dict[str, Any]) -> tuple[bool, float | None]:
     """Return whether the final inner AB eccentricity crossed one and when."""
     e_in = np.asarray(result.elements.get("e_in", []), dtype=float)

@@ -29,7 +29,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from core.config import load_config, save_config, get_default_params
 from core.simulation import run_simulation, SimulationResult
-from core.batch import run_stat_task, default_max_workers
+from core.batch import run_stat_task, default_max_workers, is_break_stat_row
 import csv
 import multiprocessing as mp
 import numpy as np
@@ -44,6 +44,20 @@ def _format_duration(seconds: float) -> str:
     if hours:
         return f"{hours}:{minutes:02d}:{seconds:02d}"
     return f"{minutes}:{seconds:02d}"
+
+
+def _statistic_values(rows: list | None, key: str) -> list[float]:
+    values = []
+    for row in rows or []:
+        if not is_break_stat_row(row):
+            continue
+        try:
+            value = float(row.get(key))
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(value):
+            values.append(value)
+    return values
 
 
 class StatisticTableModel(QAbstractTableModel):
@@ -1254,14 +1268,6 @@ class MainWindow(QMainWindow):
             return "—"
         return f"{v:.6g}"
 
-    @staticmethod
-    def _is_internal_breakup(row: dict) -> bool:
-        if "internal_breakup" in row:
-            return bool(row["internal_breakup"])
-        return str(row.get("stability_status", "")).startswith(
-            "Total break at:"
-        )
-
     def _build_stat_summary_html(
         self, rows: list | None
     ) -> tuple[str, str]:
@@ -1316,38 +1322,28 @@ class MainWindow(QMainWindow):
             "<h3 style='margin:8px 0 2px 0;'>Results</h3>",
         ]
 
-        def column(key: str) -> np.ndarray:
-            vals = []
-            for r in rows or []:
-                if (
-                    not r
-                    or not r.get("success", True)
-                    or self._is_internal_breakup(r)
-                ):
-                    continue
-                try:
-                    v = float(r.get(key))
-                except (TypeError, ValueError):
-                    continue
-                if np.isfinite(v):
-                    vals.append(v)
-            return np.array(vals, dtype=float)
-
         if not rows:
             parts.append(
                 "<p><i>Run a statistic simulation to see results here.</i></p>"
             )
         else:
-            R = column("R")
-            de = column("delta_e")
-            # dep = column("delta_e_pred")
-            n_ok = sum(
-                1 for r in rows
-                if r and r.get("success", True) and not self._is_internal_breakup(r)
-            )
+            R = np.array(_statistic_values(rows, "R"), dtype=float)
+            de = np.array(_statistic_values(rows, "delta_e"), dtype=float)
+            # dep = np.array(_statistic_values(rows, "delta_e_pred"), dtype=float)
+            n_ok = sum(1 for row in rows if is_break_stat_row(row))
 
             if R.size == 0 and de.size == 0:  # and dep.size == 0:
-                parts.append("<p><i>No successful runs to summarise.</i></p>")
+                if not any(row and row.get("stability_status") for row in rows):
+                    message = (
+                        "No stability_status data; 'Break at:' runs "
+                        "cannot be identified."
+                    )
+                else:
+                    message = (
+                        "No successful 'Break at:' runs with finite results "
+                        "to summarise."
+                    )
+                parts.append(f"<p><i>{message}</i></p>")
             else:
                 def stat_row(
                     label: str,
@@ -1408,10 +1404,10 @@ class MainWindow(QMainWindow):
                 parts.append("</table>")
 
                 total = len(rows)
-                note = f"Based on {n_ok} successful run(s)"
-                if n_ok != total:
-                    note += f" out of {total} total"
-                note += "."
+                note = (
+                    f"Eligible 'Break at:' runs: {n_ok} of {total}; "
+                    f"finite &Delta;e<sub>in</sub>: {de.size}, finite R: {R.size}."
+                )
                 parts.append(
                     f"<p style='margin-top:8px; color:#555;'><i>{note}</i></p>"
                 )
@@ -1423,20 +1419,7 @@ class MainWindow(QMainWindow):
         self.stat_summary_hist_figure.clear()
         ax = self.stat_summary_hist_figure.add_subplot(111)
 
-        values = []
-        for row in rows or []:
-            if (
-                not row
-                or not row.get("success", True)
-                or self._is_internal_breakup(row)
-            ):
-                continue
-            try:
-                value = float(row.get("delta_e"))
-            except (TypeError, ValueError):
-                continue
-            if np.isfinite(value):
-                values.append(value)
+        values = _statistic_values(rows, "delta_e")
 
         if values:
             ax.hist(
@@ -1447,7 +1430,7 @@ class MainWindow(QMainWindow):
             message = (
                 "Run a statistic simulation to see the histogram."
                 if rows is None
-                else "No successful finite inner eccentricity changes."
+                else "No finite inner eccentricity changes from 'Break at:' runs."
             )
             ax.text(
                 0.5, 0.5, message, ha="center", va="center",

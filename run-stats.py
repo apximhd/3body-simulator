@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from core.batch import default_max_workers, run_stat_task
+from core.batch import default_max_workers, is_break_stat_row, run_stat_task
 
 
 TARGET_COLUMNS = ("Δe_in", "σ", "SE")
@@ -238,7 +238,7 @@ def _calculate_row(row: dict[str, str], row_number: int, row_count: int,
                 delta_e = result.get("delta_e")
                 if (
                     result.get("success")
-                    and not result.get("internal_breakup", False)
+                    and is_break_stat_row(result)
                     and delta_e is not None
                     and np.isfinite(delta_e)
                 ):
@@ -355,6 +355,12 @@ def _process_file(path: Path, workers: int) -> int:
             for column, value in zip(TARGET_COLUMNS, calculated):
                 if not (row.get(column) or "").strip():
                     row[column] = format(value, ".6g")
+        else:
+            print(
+                f"Warning: row {row_index + 1}: no successful 'Break at:' runs "
+                "with finite delta_e; missing statistics remain empty.",
+                file=sys.stderr,
+            )
         _save_csv(path, fieldnames, rows)
 
     elapsed = time.monotonic() - started_at
@@ -365,7 +371,10 @@ def _process_file(path: Path, workers: int) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Fill missing Δe_in, σ, and SE values in a statistic CSV."
+        description=(
+            "Fill missing Δe_in, σ, and SE values using 'Break at:' runs "
+            "in a statistic CSV."
+        )
     )
     parser.add_argument("path", type=Path, help="Path to the statistic CSV file")
     parser.add_argument(

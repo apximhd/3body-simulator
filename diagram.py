@@ -1,4 +1,4 @@
-"""Plot a histogram of delta_e from a Statistic-mode CSV export."""
+"""Plot delta_e for Break at: rows from a Statistic-mode CSV export."""
 
 from __future__ import annotations
 
@@ -18,7 +18,11 @@ def read_delta_e(path: Path) -> tuple[list[float], int]:
         reader = csv.DictReader(source)
         if not reader.fieldnames or "delta_e" not in reader.fieldnames:
             raise ValueError("CSV must contain a 'delta_e' column")
+        if "stability_status" not in reader.fieldnames:
+            raise ValueError("CSV must contain a 'stability_status' column")
         for row in reader:
+            if not (row.get("stability_status") or "").strip().startswith("Break at:"):
+                continue
             raw = row.get("delta_e")
             if raw is None or not raw.strip():
                 skipped += 1
@@ -34,7 +38,7 @@ def read_delta_e(path: Path) -> tuple[list[float], int]:
                 continue
             values.append(value)
     if not values:
-        raise ValueError("CSV contains no finite delta_e values")
+        raise ValueError("CSV contains no finite delta_e values in 'Break at:' rows")
     return values, skipped
 
 
